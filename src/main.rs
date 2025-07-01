@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 const TILE_SIZE: f32 = 1.0;
 const WORLD_SIZE: i32 = 100; // 100x100 world
-const CHUNK_SIZE: i32 = 10; // 10x10 tiles per chunk
+const CHUNK_SIZE: i32 = 16; // 16x16 tiles per chunk (larger chunks for better performance)
+const RENDER_DISTANCE: i32 = 3; // Only render chunks within 3 chunk radius
 
 // Components
 #[derive(Component)]
@@ -18,6 +19,9 @@ struct WorldTile {
     chunk_pos: IVec2,
     tile_pos: IVec2,
 }
+
+#[derive(Component)]
+struct ChunkEntity;
 
 #[derive(Component)]
 struct MapUI;
@@ -89,6 +93,7 @@ fn main() {
             player_movement, 
             camera_follow, 
             update_explored_chunks,
+            manage_world_chunks,
             toggle_map,
             update_map_display,
             update_fps,
@@ -102,11 +107,11 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Generate world
-    let world_data = generate_world();
-    
-    // Spawn all tiles
-    spawn_world_tiles(&world_data, &mut commands, &mut meshes, &mut materials);
+    // Initialize empty world data
+    let world_data = WorldData {
+        chunks: HashMap::new(),
+        explored_chunks: std::collections::HashSet::new(),
+    };
     
     commands.insert_resource(world_data);
 
@@ -211,139 +216,6 @@ fn setup(
         }),
         BiomeText,
     ));
-}
-
-fn generate_world() -> WorldData {
-    let mut world_data = WorldData {
-        chunks: HashMap::new(),
-        explored_chunks: std::collections::HashSet::new(),
-    };
-
-    let noise = Perlin::new(42); // Fixed seed for consistent world
-    let chunks_per_side = WORLD_SIZE / CHUNK_SIZE;
-
-    for chunk_x in 0..chunks_per_side {
-        for chunk_z in 0..chunks_per_side {
-            let chunk_pos = IVec2::new(chunk_x, chunk_z);
-            
-            // Generate chunk color based on noise
-            let noise_value = noise.get([chunk_x as f64 * 0.1, chunk_z as f64 * 0.1]);
-            
-            let tile_type = match noise_value {
-                n if n < -0.3 => TileType::Water,
-                n if n < 0.2 => TileType::Desert,
-                _ => TileType::Grassland,
-            };
-
-            let color = tile_type.get_color();
-
-            world_data.chunks.insert(chunk_pos, ChunkData {
-                position: chunk_pos,
-                color,
-            });
-        }
-    }
-
-    world_data
-}
-
-fn spawn_world_tiles(
-    world_data: &WorldData,
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-) {
-    let tile_mesh = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE));
-    let cactus_mesh = meshes.add(Cuboid::new(0.2, 1.5, 0.2)); // Tall thin cactus
-    let tree_mesh = meshes.add(Cuboid::new(0.3, 2.0, 0.3)); // Slightly wider tree
-    
-    let cactus_material = materials.add(Color::rgb(0.2, 0.7, 0.2)); // Green
-    let tree_material = materials.add(Color::rgb(0.4, 0.2, 0.1)); // Brown
-    
-    let noise = Perlin::new(123); // Different seed for decoration placement
-    
-    for (chunk_pos, chunk_data) in &world_data.chunks {
-        let chunk_material = materials.add(chunk_data.color);
-        
-        // Spawn tiles for this chunk
-        for tile_x in 0..CHUNK_SIZE {
-            for tile_z in 0..CHUNK_SIZE {
-                let world_x = chunk_pos.x * CHUNK_SIZE + tile_x;
-                let world_z = chunk_pos.y * CHUNK_SIZE + tile_z;
-                
-                // Spawn ground tile
-                commands.spawn((
-                    PbrBundle {
-                        mesh: tile_mesh.clone(),
-                        material: chunk_material.clone(),
-                        transform: Transform::from_xyz(
-                            world_x as f32 * TILE_SIZE,
-                            0.0,
-                            world_z as f32 * TILE_SIZE,
-                        ),
-                        ..default()
-                    },
-                    WorldTile {
-                        chunk_pos: *chunk_pos,
-                        tile_pos: IVec2::new(tile_x, tile_z),
-                    },
-                ));
-                
-                // Get biome type for this tile
-                let tile_noise = noise.get([world_x as f64 * 0.1, world_z as f64 * 0.1]);
-                let biome = match tile_noise {
-                    n if n < -0.3 => TileType::Water,
-                    n if n < 0.2 => TileType::Desert,
-                    _ => TileType::Grassland,
-                };
-                
-                // Place decorations based on biome
-                let decoration_noise = noise.get([world_x as f64 * 0.3 + 1000.0, world_z as f64 * 0.3 + 1000.0]);
-                
-                match biome {
-                    TileType::Desert => {
-                        // Sporadic cacti (about 3% chance)
-                        if decoration_noise > 0.85 {
-                            commands.spawn((
-                                PbrBundle {
-                                    mesh: cactus_mesh.clone(),
-                                    material: cactus_material.clone(),
-                                    transform: Transform::from_xyz(
-                                        world_x as f32 * TILE_SIZE,
-                                        0.75, // Half the height above ground
-                                        world_z as f32 * TILE_SIZE,
-                                    ),
-                                    ..default()
-                                },
-                                Cactus,
-                            ));
-                        }
-                    },
-                    TileType::Grassland => {
-                        // Very sporadic trees (about 1% chance)
-                        if decoration_noise > 0.95 {
-                            commands.spawn((
-                                PbrBundle {
-                                    mesh: tree_mesh.clone(),
-                                    material: tree_material.clone(),
-                                    transform: Transform::from_xyz(
-                                        world_x as f32 * TILE_SIZE,
-                                        1.0, // Half the height above ground
-                                        world_z as f32 * TILE_SIZE,
-                                    ),
-                                    ..default()
-                                },
-                                Tree,
-                            ));
-                        }
-                    },
-                    TileType::Water => {
-                        // No decorations in water
-                    }
-                }
-            }
-        }
-    }
 }
 
 fn player_movement(
@@ -483,6 +355,162 @@ fn get_biome_at_position(world_data: &WorldData, world_pos: Vec3) -> TileType {
         n if n < -0.3 => TileType::Water,
         n if n < 0.2 => TileType::Desert,
         _ => TileType::Grassland,
+    }
+}
+
+fn manage_world_chunks(
+    player_query: Query<&Transform, With<Player>>,
+    mut world_data: ResMut<WorldData>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    chunk_query: Query<(Entity, &ChunkEntity)>,
+) {
+    if let Ok(player_transform) = player_query.get_single() {
+        let player_chunk = IVec2::new(
+            (player_transform.translation.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32,
+            (player_transform.translation.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32,
+        );
+        
+        // Generate and spawn chunks around player
+        for x in -RENDER_DISTANCE..=RENDER_DISTANCE {
+            for z in -RENDER_DISTANCE..=RENDER_DISTANCE {
+                let chunk_pos = player_chunk + IVec2::new(x, z);
+                
+                if !world_data.chunks.contains_key(&chunk_pos) {
+                    let chunk_data = generate_chunk(chunk_pos);
+                    spawn_chunk(&chunk_data, &mut commands, &mut meshes, &mut materials);
+                    world_data.chunks.insert(chunk_pos, chunk_data);
+                }
+            }
+        }
+        
+        // TODO: Remove chunks that are too far away (implement later for infinite world)
+    }
+}
+
+fn generate_chunk(chunk_pos: IVec2) -> ChunkData {
+    let noise = Perlin::new(42);
+    let noise_value = noise.get([chunk_pos.x as f64 * 0.1, chunk_pos.y as f64 * 0.1]);
+    
+    let tile_type = match noise_value {
+        n if n < -0.3 => TileType::Water,
+        n if n < 0.2 => TileType::Desert,
+        _ => TileType::Grassland,
+    };
+
+    ChunkData {
+        position: chunk_pos,
+        color: tile_type.get_color(),
+    }
+}
+
+fn spawn_chunk(
+    chunk_data: &ChunkData,
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+) {
+    // Create a larger mesh for the entire chunk instead of individual tiles
+    let chunk_mesh = meshes.add(Plane3d::default().mesh().size(
+        CHUNK_SIZE as f32 * TILE_SIZE,
+        CHUNK_SIZE as f32 * TILE_SIZE,
+    ));
+    let chunk_material = materials.add(chunk_data.color);
+    
+    let world_x = chunk_data.position.x as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
+    let world_z = chunk_data.position.y as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
+    
+    // Spawn single entity for entire chunk
+    commands.spawn((
+        PbrBundle {
+            mesh: chunk_mesh,
+            material: chunk_material,
+            transform: Transform::from_xyz(
+                world_x + (CHUNK_SIZE as f32 * TILE_SIZE) / 2.0,
+                0.0,
+                world_z + (CHUNK_SIZE as f32 * TILE_SIZE) / 2.0,
+            ),
+            ..default()
+        },
+        ChunkEntity,
+    ));
+    
+    // Add decorations
+    spawn_chunk_decorations(chunk_data, commands, meshes, materials);
+}
+
+fn spawn_chunk_decorations(
+    chunk_data: &ChunkData,
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+) {
+    let cactus_mesh = meshes.add(Cuboid::new(0.2, 1.5, 0.2));
+    let tree_mesh = meshes.add(Cuboid::new(0.3, 2.0, 0.3));
+    let cactus_material = materials.add(Color::rgb(0.2, 0.7, 0.2));
+    let tree_material = materials.add(Color::rgb(0.4, 0.2, 0.1));
+    
+    let decoration_noise = Perlin::new(123);
+    
+    // Determine chunk biome
+    let noise = Perlin::new(42);
+    let noise_value = noise.get([chunk_data.position.x as f64 * 0.1, chunk_data.position.y as f64 * 0.1]);
+    let biome = match noise_value {
+        n if n < -0.3 => TileType::Water,
+        n if n < 0.2 => TileType::Desert,
+        _ => TileType::Grassland,
+    };
+    
+    // Only add a few decorations per chunk to keep performance good
+    for i in 0..3 {
+        for j in 0..3 {
+            let sample_x = chunk_data.position.x * CHUNK_SIZE + i * (CHUNK_SIZE / 3);
+            let sample_z = chunk_data.position.y * CHUNK_SIZE + j * (CHUNK_SIZE / 3);
+            
+            let decoration_value = decoration_noise.get([
+                sample_x as f64 * 0.3 + 1000.0,
+                sample_z as f64 * 0.3 + 1000.0,
+            ]);
+            
+            match biome {
+                TileType::Desert => {
+                    if decoration_value > 0.7 {
+                        commands.spawn((
+                            PbrBundle {
+                                mesh: cactus_mesh.clone(),
+                                material: cactus_material.clone(),
+                                transform: Transform::from_xyz(
+                                    sample_x as f32 * TILE_SIZE,
+                                    0.75,
+                                    sample_z as f32 * TILE_SIZE,
+                                ),
+                                ..default()
+                            },
+                            Cactus,
+                        ));
+                    }
+                },
+                TileType::Grassland => {
+                    if decoration_value > 0.85 {
+                        commands.spawn((
+                            PbrBundle {
+                                mesh: tree_mesh.clone(),
+                                material: tree_material.clone(),
+                                transform: Transform::from_xyz(
+                                    sample_x as f32 * TILE_SIZE,
+                                    1.0,
+                                    sample_z as f32 * TILE_SIZE,
+                                ),
+                                ..default()
+                            },
+                            Tree,
+                        ));
+                    }
+                },
+                TileType::Water => {}
+            }
+        }
     }
 }
 
