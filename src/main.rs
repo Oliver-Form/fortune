@@ -345,7 +345,12 @@ fn update_biome_display(
 fn get_biome_at_position(world_data: &WorldData, world_pos: Vec3) -> TileType {
     let chunk_x = (world_pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
     let chunk_z = (world_pos.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
-    let chunk_pos = IVec2::new(chunk_x, chunk_z);
+    
+    // Check if chunk is within world boundaries
+    let max_chunk = (WORLD_SIZE / CHUNK_SIZE) - 1;
+    if chunk_x < 0 || chunk_x > max_chunk || chunk_z < 0 || chunk_z > max_chunk {
+        return TileType::Desert; // Default to desert outside world bounds
+    }
     
     // Use the same noise logic as world generation
     let noise = Perlin::new(42);
@@ -372,15 +377,23 @@ fn manage_world_chunks(
             (player_transform.translation.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32,
         );
         
+        // Calculate world boundaries in chunks
+        let max_chunk = (WORLD_SIZE / CHUNK_SIZE) - 1;
+        
         // Generate and spawn chunks around player
         for x in -RENDER_DISTANCE..=RENDER_DISTANCE {
             for z in -RENDER_DISTANCE..=RENDER_DISTANCE {
                 let chunk_pos = player_chunk + IVec2::new(x, z);
                 
-                if !world_data.chunks.contains_key(&chunk_pos) {
-                    let chunk_data = generate_chunk(chunk_pos);
-                    spawn_chunk(&chunk_data, &mut commands, &mut meshes, &mut materials);
-                    world_data.chunks.insert(chunk_pos, chunk_data);
+                // Check if chunk is within world boundaries
+                if chunk_pos.x >= 0 && chunk_pos.x <= max_chunk && 
+                   chunk_pos.y >= 0 && chunk_pos.y <= max_chunk {
+                    
+                    if !world_data.chunks.contains_key(&chunk_pos) {
+                        let chunk_data = generate_chunk(chunk_pos);
+                        spawn_chunk(&chunk_data, &mut commands, &mut meshes, &mut materials);
+                        world_data.chunks.insert(chunk_pos, chunk_data);
+                    }
                 }
             }
         }
@@ -513,4 +526,3 @@ fn spawn_chunk_decorations(
         }
     }
 }
-
