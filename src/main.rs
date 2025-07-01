@@ -28,6 +28,12 @@ struct FpsText;
 #[derive(Component)]
 struct BiomeText;
 
+#[derive(Component)]
+struct Cactus;
+
+#[derive(Component)]
+struct Tree;
+
 // Resources
 #[derive(Resource)]
 struct WorldData {
@@ -51,7 +57,6 @@ struct ChunkData {
 enum TileType {
     Desert,    // Tan
     Grassland, // Green  
-    Mountain,  // Gray
     Water,     // Blue
 }
 
@@ -60,7 +65,6 @@ impl TileType {
         match self {
             TileType::Desert => "Desert",
             TileType::Grassland => "Grassland",
-            TileType::Mountain => "Mountain",
             TileType::Water => "Water",
         }
     }
@@ -69,7 +73,6 @@ impl TileType {
         match self {
             TileType::Desert => Color::rgb(0.8, 0.7, 0.4),    // Tan
             TileType::Grassland => Color::rgb(0.2, 0.6, 0.2), // Green
-            TileType::Mountain => Color::rgb(0.5, 0.5, 0.5),  // Gray
             TileType::Water => Color::rgb(0.2, 0.4, 0.8),     // Blue
         }
     }
@@ -228,9 +231,8 @@ fn generate_world() -> WorldData {
             
             let tile_type = match noise_value {
                 n if n < -0.3 => TileType::Water,
-                n if n < 0.0 => TileType::Desert,
-                n if n < 0.3 => TileType::Grassland,
-                _ => TileType::Mountain,
+                n if n < 0.2 => TileType::Desert,
+                _ => TileType::Grassland,
             };
 
             let color = tile_type.get_color();
@@ -252,6 +254,13 @@ fn spawn_world_tiles(
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) {
     let tile_mesh = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE));
+    let cactus_mesh = meshes.add(Cuboid::new(0.2, 1.5, 0.2)); // Tall thin cactus
+    let tree_mesh = meshes.add(Cuboid::new(0.3, 2.0, 0.3)); // Slightly wider tree
+    
+    let cactus_material = materials.add(Color::rgb(0.2, 0.7, 0.2)); // Green
+    let tree_material = materials.add(Color::rgb(0.4, 0.2, 0.1)); // Brown
+    
+    let noise = Perlin::new(123); // Different seed for decoration placement
     
     for (chunk_pos, chunk_data) in &world_data.chunks {
         let chunk_material = materials.add(chunk_data.color);
@@ -262,6 +271,7 @@ fn spawn_world_tiles(
                 let world_x = chunk_pos.x * CHUNK_SIZE + tile_x;
                 let world_z = chunk_pos.y * CHUNK_SIZE + tile_z;
                 
+                // Spawn ground tile
                 commands.spawn((
                     PbrBundle {
                         mesh: tile_mesh.clone(),
@@ -278,6 +288,59 @@ fn spawn_world_tiles(
                         tile_pos: IVec2::new(tile_x, tile_z),
                     },
                 ));
+                
+                // Get biome type for this tile
+                let tile_noise = noise.get([world_x as f64 * 0.1, world_z as f64 * 0.1]);
+                let biome = match tile_noise {
+                    n if n < -0.3 => TileType::Water,
+                    n if n < 0.2 => TileType::Desert,
+                    _ => TileType::Grassland,
+                };
+                
+                // Place decorations based on biome
+                let decoration_noise = noise.get([world_x as f64 * 0.3 + 1000.0, world_z as f64 * 0.3 + 1000.0]);
+                
+                match biome {
+                    TileType::Desert => {
+                        // Sporadic cacti (about 3% chance)
+                        if decoration_noise > 0.85 {
+                            commands.spawn((
+                                PbrBundle {
+                                    mesh: cactus_mesh.clone(),
+                                    material: cactus_material.clone(),
+                                    transform: Transform::from_xyz(
+                                        world_x as f32 * TILE_SIZE,
+                                        0.75, // Half the height above ground
+                                        world_z as f32 * TILE_SIZE,
+                                    ),
+                                    ..default()
+                                },
+                                Cactus,
+                            ));
+                        }
+                    },
+                    TileType::Grassland => {
+                        // Very sporadic trees (about 1% chance)
+                        if decoration_noise > 0.95 {
+                            commands.spawn((
+                                PbrBundle {
+                                    mesh: tree_mesh.clone(),
+                                    material: tree_material.clone(),
+                                    transform: Transform::from_xyz(
+                                        world_x as f32 * TILE_SIZE,
+                                        1.0, // Half the height above ground
+                                        world_z as f32 * TILE_SIZE,
+                                    ),
+                                    ..default()
+                                },
+                                Tree,
+                            ));
+                        }
+                    },
+                    TileType::Water => {
+                        // No decorations in water
+                    }
+                }
             }
         }
     }
@@ -418,9 +481,8 @@ fn get_biome_at_position(world_data: &WorldData, world_pos: Vec3) -> TileType {
     
     match noise_value {
         n if n < -0.3 => TileType::Water,
-        n if n < 0.0 => TileType::Desert,
-        n if n < 0.3 => TileType::Grassland,
-        _ => TileType::Mountain,
+        n if n < 0.2 => TileType::Desert,
+        _ => TileType::Grassland,
     }
 }
 
