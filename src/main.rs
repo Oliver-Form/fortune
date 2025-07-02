@@ -12,7 +12,9 @@ const RENDER_DISTANCE: i32 = 3; // Only render chunks within 3 chunk radius
 struct Player;
 
 #[derive(Component)]
-struct CameraController;
+struct CameraController {
+    zoom: f32,
+}
 
 #[derive(Component)]
 struct WorldTile {
@@ -92,6 +94,7 @@ fn main() {
         .add_systems(Update, (
             player_movement, 
             camera_follow, 
+            camera_zoom,
             update_explored_chunks,
             manage_world_chunks,
             toggle_map,
@@ -148,7 +151,9 @@ fn setup(
                 .looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
-        CameraController,
+        CameraController {
+            zoom: 10.0, // Default zoom distance
+        },
     ));
 
     // Create map UI (initially hidden)
@@ -259,13 +264,14 @@ fn player_movement(
 
 fn camera_follow(
     player_query: Query<&Transform, (With<Player>, Without<CameraController>)>,
-    mut camera_query: Query<&mut Transform, (With<CameraController>, Without<Player>)>,
+    mut camera_query: Query<(&mut Transform, &CameraController), (With<CameraController>, Without<Player>)>,
 ) {
-    if let (Ok(player_transform), Ok(mut camera_transform)) = 
+    if let (Ok(player_transform), Ok((mut camera_transform, camera_controller))) = 
         (player_query.get_single(), camera_query.get_single_mut()) {
         
-        // Maintain isometric view by keeping the camera at a fixed offset from the player
-        let offset = Vec3::new(10.0, 10.0, 10.0);
+        // Use zoom value for offset distance
+        let zoom_distance = camera_controller.zoom;
+        let offset = Vec3::new(zoom_distance, zoom_distance, zoom_distance);
         camera_transform.translation = player_transform.translation + offset;
         
         // Always look at the player
@@ -524,5 +530,35 @@ fn spawn_chunk_decorations(
                 TileType::Water => {}
             }
         }
+    }
+}
+
+fn camera_zoom(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut scroll_events: EventReader<bevy::input::mouse::MouseWheel>,
+    mut camera_query: Query<&mut CameraController>,
+    time: Res<Time>,
+) {
+    if let Ok(mut camera_controller) = camera_query.get_single_mut() {
+        let zoom_speed = 15.0; // How fast to zoom with keyboard
+        let scroll_zoom_speed = 2.0; // How fast to zoom with mouse wheel
+        let min_zoom = 3.0; // Closest zoom
+        let max_zoom = 25.0; // Farthest zoom
+        
+        // Keyboard zoom controls (Q to zoom out, E to zoom in)
+        if keyboard_input.pressed(KeyCode::KeyQ) {
+            camera_controller.zoom += zoom_speed * time.delta_seconds();
+        }
+        if keyboard_input.pressed(KeyCode::KeyE) {
+            camera_controller.zoom -= zoom_speed * time.delta_seconds();
+        }
+        
+        // Mouse wheel zoom
+        for scroll in scroll_events.read() {
+            camera_controller.zoom -= scroll.y * scroll_zoom_speed;
+        }
+        
+        // Clamp zoom to min/max values
+        camera_controller.zoom = camera_controller.zoom.clamp(min_zoom, max_zoom);
     }
 }
