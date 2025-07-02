@@ -77,7 +77,7 @@ struct ChunkData {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TileType {
     Desert,    // Tan
-    Grassland, // Green  
+    Grassland, // Green
     Water,     // Blue
 }
 
@@ -92,9 +92,9 @@ impl TileType {
 
     fn get_color(&self) -> Color {
         match self {
-            TileType::Desert => Color::rgb(0.8, 0.7, 0.4),    // Tan
+            TileType::Desert => Color::rgb(0.8, 0.7, 0.4), // Tan
             TileType::Grassland => Color::rgb(0.2, 0.6, 0.2), // Green
-            TileType::Water => Color::rgb(0.2, 0.4, 0.8),     // Blue
+            TileType::Water => Color::rgb(0.2, 0.4, 0.8),  // Blue
         }
     }
 }
@@ -110,20 +110,23 @@ fn main() {
             gun_drawn: false,
         })
         .add_systems(Startup, setup)
-        .add_systems(Update, (
-            player_movement, 
-            camera_follow, 
-            camera_zoom,
-            update_explored_chunks,
-            manage_world_chunks,
-            gun_control,
-            aim_system,
-            shooting_system,
-            toggle_map,
-            update_map_display,
-            update_fps,
-            update_biome_display,
-        ))
+        .add_systems(
+            Update,
+            (
+                player_movement,
+                camera_follow,
+                camera_zoom,
+                update_explored_chunks,
+                manage_world_chunks,
+                gun_control,
+                aim_system,
+                shooting_system,
+                toggle_map,
+                update_map_display,
+                update_fps,
+                update_biome_display,
+            ),
+        )
         .run();
 }
 
@@ -137,7 +140,7 @@ fn setup(
         chunks: HashMap::new(),
         explored_chunks: std::collections::HashSet::new(),
     };
-    
+
     commands.insert_resource(world_data);
 
     // Create the player cube
@@ -169,8 +172,7 @@ fn setup(
     // Create isometric camera
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(10.0, 10.0, 10.0)
-                .looking_at(Vec3::ZERO, Vec3::Y),
+            transform: Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
         CameraController {
@@ -179,32 +181,34 @@ fn setup(
     ));
 
     // Create map UI (initially hidden)
-    commands.spawn((
-        NodeBundle {
-            style: Style {
-                width: Val::Percent(80.0),
-                height: Val::Percent(80.0),
-                position_type: PositionType::Absolute,
-                left: Val::Percent(10.0),
-                top: Val::Percent(10.0),
-                display: Display::None,
-                flex_direction: FlexDirection::Column,
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(80.0),
+                    height: Val::Percent(80.0),
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(10.0),
+                    top: Val::Percent(10.0),
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                background_color: Color::rgba(0.0, 0.0, 0.0, 0.8).into(),
                 ..default()
             },
-            background_color: Color::rgba(0.0, 0.0, 0.0, 0.8).into(),
-            ..default()
-        },
-        MapUI,
-    )).with_children(|parent| {
-        parent.spawn(TextBundle::from_section(
-            "World Map (Press M to close)",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
-    });
+            MapUI,
+        ))
+        .with_children(|parent| {
+            parent.spawn(TextBundle::from_section(
+                "World Map (Press M to close)",
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ));
+        });
 
     // Create FPS counter UI
     commands.spawn((
@@ -256,23 +260,23 @@ fn player_movement(
 
         // WASD movement
         if keyboard_input.pressed(KeyCode::KeyW) {
-            direction += Vec3::new(0.0, 0.0, -1.0);
+            direction += Vec3::new(-1.0, 0.0, -1.0);
         }
         if keyboard_input.pressed(KeyCode::KeyS) {
-            direction += Vec3::new(0.0, 0.0, 1.0);
+            direction += Vec3::new(1.0, 0.0, 1.0);
         }
         if keyboard_input.pressed(KeyCode::KeyA) {
-            direction += Vec3::new(-1.0, 0.0, 0.0);
+            direction += Vec3::new(-1.0, 0.0, 1.0);
         }
         if keyboard_input.pressed(KeyCode::KeyD) {
-            direction += Vec3::new(1.0, 0.0, 0.0);
+            direction += Vec3::new(1.0, 0.0, -1.0);
         }
 
         // Normalize direction and apply movement
         if direction.length() > 0.0 {
             direction = direction.normalize();
             let new_pos = transform.translation + direction * speed * time.delta_seconds();
-            
+
             // Keep player within world bounds
             let max_pos = (WORLD_SIZE as f32 - 1.0) * TILE_SIZE;
             transform.translation = Vec3::new(
@@ -286,16 +290,19 @@ fn player_movement(
 
 fn camera_follow(
     player_query: Query<&Transform, (With<Player>, Without<CameraController>)>,
-    mut camera_query: Query<(&mut Transform, &CameraController), (With<CameraController>, Without<Player>)>,
+    mut camera_query: Query<
+        (&mut Transform, &CameraController),
+        (With<CameraController>, Without<Player>),
+    >,
 ) {
-    if let (Ok(player_transform), Ok((mut camera_transform, camera_controller))) = 
-        (player_query.get_single(), camera_query.get_single_mut()) {
-        
+    if let (Ok(player_transform), Ok((mut camera_transform, camera_controller))) =
+        (player_query.get_single(), camera_query.get_single_mut())
+    {
         // Use zoom value for offset distance
         let zoom_distance = camera_controller.zoom;
         let offset = Vec3::new(zoom_distance, zoom_distance, zoom_distance);
         camera_transform.translation = player_transform.translation + offset;
-        
+
         // Always look at the player
         camera_transform.look_at(player_transform.translation, Vec3::Y);
     }
@@ -309,15 +316,12 @@ fn update_explored_chunks(
         let chunk_x = (player_transform.translation.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
         let chunk_z = (player_transform.translation.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
         let current_chunk = IVec2::new(chunk_x, chunk_z);
-        
+
         world_data.explored_chunks.insert(current_chunk);
     }
 }
 
-fn toggle_map(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut map_visible: ResMut<MapVisible>,
-) {
+fn toggle_map(keyboard_input: Res<ButtonInput<KeyCode>>, mut map_visible: ResMut<MapVisible>) {
     if keyboard_input.just_pressed(KeyCode::KeyM) {
         map_visible.0 = !map_visible.0;
     }
@@ -343,10 +347,12 @@ fn update_fps(
     mut fps_text_query: Query<&mut Text, With<FpsText>>,
 ) {
     fps_timer.0.tick(time.delta());
-    
+
     if fps_timer.0.just_finished() {
         if let Ok(mut text) = fps_text_query.get_single_mut() {
-            if let Some(fps_diagnostic) = diagnostics.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS) {
+            if let Some(fps_diagnostic) =
+                diagnostics.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS)
+            {
                 if let Some(fps_smoothed) = fps_diagnostic.smoothed() {
                     text.sections[0].value = format!("FPS: {:.1}", fps_smoothed);
                 }
@@ -363,7 +369,7 @@ fn update_biome_display(
     if let Ok(player_transform) = player_query.get_single() {
         if let Ok(mut text) = biome_text_query.get_single_mut() {
             let current_biome = get_biome_at_position(&world_data, player_transform.translation);
-            
+
             text.sections[0].value = current_biome.get_name().to_string();
             text.sections[0].style.color = current_biome.get_color();
         }
@@ -373,17 +379,17 @@ fn update_biome_display(
 fn get_biome_at_position(world_data: &WorldData, world_pos: Vec3) -> TileType {
     let chunk_x = (world_pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
     let chunk_z = (world_pos.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
-    
+
     // Check if chunk is within world boundaries
     let max_chunk = (WORLD_SIZE / CHUNK_SIZE) - 1;
     if chunk_x < 0 || chunk_x > max_chunk || chunk_z < 0 || chunk_z > max_chunk {
         return TileType::Desert; // Default to desert outside world bounds
     }
-    
+
     // Use the same noise logic as world generation
     let noise = Perlin::new(42);
     let noise_value = noise.get([chunk_x as f64 * 0.1, chunk_z as f64 * 0.1]);
-    
+
     match noise_value {
         n if n < -0.3 => TileType::Water,
         n if n < 0.2 => TileType::Desert,
@@ -404,19 +410,21 @@ fn manage_world_chunks(
             (player_transform.translation.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32,
             (player_transform.translation.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32,
         );
-        
+
         // Calculate world boundaries in chunks
         let max_chunk = (WORLD_SIZE / CHUNK_SIZE) - 1;
-        
+
         // Generate and spawn chunks around player
         for x in -RENDER_DISTANCE..=RENDER_DISTANCE {
             for z in -RENDER_DISTANCE..=RENDER_DISTANCE {
                 let chunk_pos = player_chunk + IVec2::new(x, z);
-                
+
                 // Check if chunk is within world boundaries
-                if chunk_pos.x >= 0 && chunk_pos.x <= max_chunk && 
-                   chunk_pos.y >= 0 && chunk_pos.y <= max_chunk {
-                    
+                if chunk_pos.x >= 0
+                    && chunk_pos.x <= max_chunk
+                    && chunk_pos.y >= 0
+                    && chunk_pos.y <= max_chunk
+                {
                     if !world_data.chunks.contains_key(&chunk_pos) {
                         let chunk_data = generate_chunk(chunk_pos);
                         spawn_chunk(&chunk_data, &mut commands, &mut meshes, &mut materials);
@@ -425,7 +433,7 @@ fn manage_world_chunks(
                 }
             }
         }
-        
+
         // TODO: Remove chunks that are too far away (implement later for infinite world)
     }
 }
@@ -433,7 +441,7 @@ fn manage_world_chunks(
 fn generate_chunk(chunk_pos: IVec2) -> ChunkData {
     let noise = Perlin::new(42);
     let noise_value = noise.get([chunk_pos.x as f64 * 0.1, chunk_pos.y as f64 * 0.1]);
-    
+
     let tile_type = match noise_value {
         n if n < -0.3 => TileType::Water,
         n if n < 0.2 => TileType::Desert,
@@ -453,15 +461,16 @@ fn spawn_chunk(
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) {
     // Create a larger mesh for the entire chunk instead of individual tiles
-    let chunk_mesh = meshes.add(Plane3d::default().mesh().size(
-        CHUNK_SIZE as f32 * TILE_SIZE,
-        CHUNK_SIZE as f32 * TILE_SIZE,
-    ));
+    let chunk_mesh = meshes.add(
+        Plane3d::default()
+            .mesh()
+            .size(CHUNK_SIZE as f32 * TILE_SIZE, CHUNK_SIZE as f32 * TILE_SIZE),
+    );
     let chunk_material = materials.add(chunk_data.color);
-    
+
     let world_x = chunk_data.position.x as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
     let world_z = chunk_data.position.y as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
-    
+
     // Spawn single entity for entire chunk
     commands.spawn((
         PbrBundle {
@@ -476,7 +485,7 @@ fn spawn_chunk(
         },
         ChunkEntity,
     ));
-    
+
     // Add decorations
     spawn_chunk_decorations(chunk_data, commands, meshes, materials);
 }
@@ -493,35 +502,38 @@ fn spawn_chunk_decorations(
     let cactus_material = materials.add(Color::rgb(0.2, 0.7, 0.2));
     let tree_material = materials.add(Color::rgb(0.4, 0.2, 0.1));
     let enemy_material = materials.add(Color::rgb(0.6, 0.2, 0.8)); // Purple enemies
-    
+
     let decoration_noise = Perlin::new(123);
     let enemy_noise = Perlin::new(456);
-    
+
     // Determine chunk biome
     let noise = Perlin::new(42);
-    let noise_value = noise.get([chunk_data.position.x as f64 * 0.1, chunk_data.position.y as f64 * 0.1]);
+    let noise_value = noise.get([
+        chunk_data.position.x as f64 * 0.1,
+        chunk_data.position.y as f64 * 0.1,
+    ]);
     let biome = match noise_value {
         n if n < -0.3 => TileType::Water,
         n if n < 0.2 => TileType::Desert,
         _ => TileType::Grassland,
     };
-    
+
     // Only add a few decorations per chunk to keep performance good
     for i in 0..3 {
         for j in 0..3 {
             let sample_x = chunk_data.position.x * CHUNK_SIZE + i * (CHUNK_SIZE / 3);
             let sample_z = chunk_data.position.y * CHUNK_SIZE + j * (CHUNK_SIZE / 3);
-            
+
             let decoration_value = decoration_noise.get([
                 sample_x as f64 * 0.3 + 1000.0,
                 sample_z as f64 * 0.3 + 1000.0,
             ]);
-            
+
             let enemy_value = enemy_noise.get([
                 sample_x as f64 * 0.25 + 2000.0,
                 sample_z as f64 * 0.25 + 2000.0,
             ]);
-            
+
             // Spawn enemies sporadically across all biomes (except water)
             if biome != TileType::Water && enemy_value > 0.8 {
                 commands.spawn((
@@ -538,7 +550,7 @@ fn spawn_chunk_decorations(
                     Enemy,
                 ));
             }
-            
+
             match biome {
                 TileType::Desert => {
                     if decoration_value > 0.7 {
@@ -556,7 +568,7 @@ fn spawn_chunk_decorations(
                             Cactus,
                         ));
                     }
-                },
+                }
                 TileType::Grassland => {
                     if decoration_value > 0.85 {
                         commands.spawn((
@@ -573,7 +585,7 @@ fn spawn_chunk_decorations(
                             Tree,
                         ));
                     }
-                },
+                }
                 TileType::Water => {}
             }
         }
@@ -591,7 +603,7 @@ fn camera_zoom(
         let scroll_zoom_speed = 2.0; // How fast to zoom with mouse wheel
         let min_zoom = 3.0; // Closest zoom
         let max_zoom = 25.0; // Farthest zoom
-        
+
         // Keyboard zoom controls (Q to zoom out, E to zoom in)
         if keyboard_input.pressed(KeyCode::KeyQ) {
             camera_controller.zoom += zoom_speed * time.delta_seconds();
@@ -599,12 +611,12 @@ fn camera_zoom(
         if keyboard_input.pressed(KeyCode::KeyE) {
             camera_controller.zoom -= zoom_speed * time.delta_seconds();
         }
-        
+
         // Mouse wheel zoom
         for scroll in scroll_events.read() {
             camera_controller.zoom -= scroll.y * scroll_zoom_speed;
         }
-        
+
         // Clamp zoom to min/max values
         camera_controller.zoom = camera_controller.zoom.clamp(min_zoom, max_zoom);
     }
@@ -620,16 +632,16 @@ fn gun_control(
     gun_query: Query<Entity, With<Gun>>,
 ) {
     let gun_drawn = mouse_input.pressed(MouseButton::Right);
-    
+
     if gun_drawn != aim_state.gun_drawn {
         aim_state.gun_drawn = gun_drawn;
-        
+
         if gun_drawn {
             // Draw gun
             if let Ok(player_transform) = player_query.get_single() {
                 let gun_mesh = meshes.add(Cuboid::new(0.1, 0.1, 0.6));
                 let gun_material = materials.add(Color::rgb(0.3, 0.3, 0.3));
-                
+
                 commands.spawn((
                     PbrBundle {
                         mesh: gun_mesh,
@@ -651,7 +663,7 @@ fn gun_control(
             }
         }
     }
-    
+
     // Update gun position to follow player
     if gun_drawn {
         if let Ok(player_transform) = player_query.get_single() {
@@ -680,34 +692,34 @@ fn aim_system(
     for indicator_entity in target_indicator_query.iter() {
         commands.entity(indicator_entity).despawn();
     }
-    
+
     aim_state.target_enemy = None;
-    
+
     if !aim_state.gun_drawn {
         return;
     }
-    
+
     let window = windows.single();
     let (camera, camera_transform) = camera_query.single();
-    
+
     if let Some(cursor_position) = window.cursor_position() {
         // Cast ray from camera through cursor position
         if let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) {
             let mut closest_distance = f32::INFINITY;
             let mut closest_enemy = None;
-            
+
             // Check for enemies within aim assist range
             for (enemy_entity, enemy_transform) in enemy_query.iter() {
                 let enemy_pos = enemy_transform.translation;
-                
+
                 // Calculate distance from ray to enemy
                 let ray_to_enemy = enemy_pos - ray.origin;
                 let projection = ray_to_enemy.dot(*ray.direction);
-                
+
                 if projection > 0.0 {
                     let closest_point = ray.origin + *ray.direction * projection;
                     let distance_to_ray = (enemy_pos - closest_point).length();
-                    
+
                     // Aim assist: snap to enemy if cursor is close enough
                     if distance_to_ray < 2.0 && projection < closest_distance {
                         closest_distance = projection;
@@ -715,16 +727,16 @@ fn aim_system(
                     }
                 }
             }
-            
+
             // If we found a target, show indicator and set target
             if let Some(target_entity) = closest_enemy {
                 aim_state.target_enemy = Some(target_entity);
-                
+
                 // Get target position for indicator
                 if let Ok((_, target_transform)) = enemy_query.get(target_entity) {
                     let indicator_mesh = meshes.add(Torus::new(0.3, 0.1));
                     let indicator_material = materials.add(Color::rgb(1.0, 0.0, 0.0)); // Red target indicator
-                    
+
                     commands.spawn((
                         PbrBundle {
                             mesh: indicator_mesh,
