@@ -324,7 +324,7 @@ fn player_movement(
     if let Ok((mut transform, mut player_state)) = player_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
         let base_speed = 5.0;
-        let run_multiplier = -200.0;
+        let run_multiplier = 2.0;
 
         // Check if running (Shift key held)
         let is_running = keyboard_input.pressed(KeyCode::ShiftLeft)
