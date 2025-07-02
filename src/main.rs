@@ -7,8 +7,8 @@ const TILE_SIZE: f32 = 1.0;
 const WORLD_SIZE: i32 = 100; // 100x100 world
 const CHUNK_SIZE: i32 = 16; // 16x16 tiles per chunk (larger chunks for better performance)
 const RENDER_DISTANCE: i32 = 3; // Only render chunks within 3 chunk radius
-struct COLORS;
-impl COLORS {
+struct Colors;
+impl Colors {
     pub const TAN: Color = Color::rgb(0.8, 0.7, 0.4);
     pub const GREEN: Color = Color::rgb(0.2, 0.6, 0.2);
     pub const BLUE: Color = Color::rgb(0.2, 0.4, 0.8);
@@ -98,7 +98,7 @@ struct AimState {
 struct PlayerAssets {
     cowboy_scene: Handle<Scene>,
     idle_animation: Handle<AnimationClip>,
-    walking_animation: Handle<AnimationClip>,
+    walking_animation: Handle<AnimationClipu,
     running_animation: Handle<AnimationClip>,
     shooting_animation: Handle<AnimationClip>,
     aiming_animation: Handle<AnimationClip>,
@@ -129,9 +129,9 @@ impl TileType {
 
     fn get_color(&self) -> Color {
         match self {
-            TileType::Desert => COLORS::TAN,
-            TileType::Grassland => COLORS::GREEN,
-            TileType::Water => COLORS::BLUE,
+            TileType::Desert => Colors::TAN,
+            TileType::Grassland => Colors::GREEN,
+            TileType::Water => Colors::BLUE,
         }
     }
 }
@@ -324,7 +324,7 @@ fn player_movement(
     if let Ok((mut transform, mut player_state)) = player_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
         let base_speed = 5.0;
-        let run_multiplier = -200.0;
+        let run_multiplier = 2.0;
 
         // Check if running (Shift key held)
         let is_running = keyboard_input.pressed(KeyCode::ShiftLeft)
