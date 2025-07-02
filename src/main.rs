@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::asset::LoadState;
 use noise::{NoiseFn, Perlin};
 use std::collections::HashMap;
 
@@ -10,6 +11,25 @@ const RENDER_DISTANCE: i32 = 3; // Only render chunks within 3 chunk radius
 // Components
 #[derive(Component)]
 struct Player;
+
+#[derive(Component)]
+struct PlayerState {
+    is_moving: bool,
+    is_running: bool,
+    is_aiming: bool,
+    is_shooting: bool,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            is_moving: false,
+            is_running: false,
+            is_aiming: false,
+            is_shooting: false,
+        }
+    }
+}
 
 #[derive(Component)]
 struct CameraController {
@@ -66,6 +86,17 @@ struct FpsTimer(Timer);
 struct AimState {
     target_enemy: Option<Entity>,
     gun_drawn: bool,
+}
+
+#[derive(Resource)]
+struct PlayerAssets {
+    cowboy_scene: Handle<Scene>,
+    idle_animation: Handle<AnimationClip>,
+    walking_animation: Handle<AnimationClip>,
+    running_animation: Handle<AnimationClip>,
+    shooting_animation: Handle<AnimationClip>,
+    aiming_animation: Handle<AnimationClip>,
+    holster_animation: Handle<AnimationClip>,
 }
 
 // Data structures
@@ -125,6 +156,8 @@ fn main() {
                 update_map_display,
                 update_fps,
                 update_biome_display,
+                spawn_player_when_loaded,
+                handle_animations,
             ),
         )
         .run();
@@ -134,6 +167,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     // Initialize empty world data
     let world_data = WorldData {
@@ -143,7 +177,26 @@ fn setup(
 
     commands.insert_resource(world_data);
 
-    // Create the player cube
+    // Load cowboy models and animations from the combined GLB file
+    let cowboy_scene: Handle<Scene> = asset_server.load("models/cowboy_combined.glb#Scene0");
+    let idle_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation4");
+    let walking_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation9");
+    let running_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation5");
+    let shooting_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation7");
+    let aiming_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation0");
+    let holster_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation2");
+    
+    commands.insert_resource(PlayerAssets { 
+        cowboy_scene,
+        idle_animation,
+        walking_animation,
+        running_animation,
+        shooting_animation,
+        aiming_animation,
+        holster_animation,
+    });
+
+    // Create temporary player cube (will be replaced when model loads)
     commands.spawn((
         PbrBundle {
             mesh: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
@@ -152,6 +205,7 @@ fn setup(
             ..default()
         },
         Player,
+        PlayerState::default(),
     ));
 
     // Add a light
@@ -251,30 +305,43 @@ fn setup(
 
 fn player_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut player_query: Query<&mut Transform, With<Player>>,
+    mut player_query: Query<(&mut Transform, &mut PlayerState), With<Player>>,
     time: Res<Time>,
 ) {
-    if let Ok(mut transform) = player_query.get_single_mut() {
+    if let Ok((mut transform, mut player_state)) = player_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
-        let speed = 5.0;
+        let base_speed = 5.0;
+        let run_multiplier = 2.0;
 
-        // WASD movement
+        // Check if running (Shift key held)
+        let is_running = keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
+
         if keyboard_input.pressed(KeyCode::KeyW) {
-            direction += Vec3::new(-1.0, 0.0, -1.0);
+            direction += Vec3::new(1.0, 0.0, -1.0);  // Up-right in isometric view (rotated 90°)
         }
         if keyboard_input.pressed(KeyCode::KeyS) {
-            direction += Vec3::new(1.0, 0.0, 1.0);
+            direction += Vec3::new(-1.0, 0.0, 1.0);  // Down-left in isometric view (rotated 90°)
         }
         if keyboard_input.pressed(KeyCode::KeyA) {
-            direction += Vec3::new(-1.0, 0.0, 1.0);
+            direction += Vec3::new(-1.0, 0.0, -1.0); // Up-left in isometric view (rotated 90°)
         }
         if keyboard_input.pressed(KeyCode::KeyD) {
-            direction += Vec3::new(1.0, 0.0, -1.0);
+            direction += Vec3::new(1.0, 0.0, 1.0);   // Down-right in isometric view (rotated 90°)
         }
+
+        // Update movement state
+        player_state.is_moving = direction.length() > 0.0;
+        player_state.is_running = player_state.is_moving && is_running;
 
         // Normalize direction and apply movement
         if direction.length() > 0.0 {
             direction = direction.normalize();
+            
+            // Rotate player to face movement direction
+            let target_rotation = Quat::from_rotation_y(direction.x.atan2(-direction.z));
+            transform.rotation = transform.rotation.slerp(target_rotation, 10.0 * time.delta_seconds());
+            
+            let speed = if is_running { base_speed * run_multiplier } else { base_speed };
             let new_pos = transform.translation + direction * speed * time.delta_seconds();
 
             // Keep player within world bounds
@@ -376,7 +443,7 @@ fn update_biome_display(
     }
 }
 
-fn get_biome_at_position(world_data: &WorldData, world_pos: Vec3) -> TileType {
+fn get_biome_at_position(_world_data: &WorldData, world_pos: Vec3) -> TileType {
     let chunk_x = (world_pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
     let chunk_z = (world_pos.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
 
@@ -403,7 +470,7 @@ fn manage_world_chunks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    chunk_query: Query<(Entity, &ChunkEntity)>,
+    _chunk_query: Query<(Entity, &ChunkEntity)>,
 ) {
     if let Ok(player_transform) = player_query.get_single() {
         let player_chunk = IVec2::new(
@@ -628,7 +695,7 @@ fn gun_control(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player_query: Query<&Transform, With<Player>>,
+    mut player_query: Query<(&Transform, &mut PlayerState), With<Player>>,
     gun_query: Query<Entity, With<Gun>>,
 ) {
     let gun_drawn = mouse_input.pressed(MouseButton::Right);
@@ -636,9 +703,11 @@ fn gun_control(
     if gun_drawn != aim_state.gun_drawn {
         aim_state.gun_drawn = gun_drawn;
 
-        if gun_drawn {
-            // Draw gun
-            if let Ok(player_transform) = player_query.get_single() {
+        if let Ok((player_transform, mut player_state)) = player_query.get_single_mut() {
+            player_state.is_aiming = gun_drawn;
+
+            if gun_drawn {
+                // Draw gun
                 let gun_mesh = meshes.add(Cuboid::new(0.1, 0.1, 0.6));
                 let gun_material = materials.add(Color::rgb(0.3, 0.3, 0.3));
 
@@ -655,18 +724,18 @@ fn gun_control(
                     },
                     Gun,
                 ));
-            }
-        } else {
-            // Holster gun
-            for gun_entity in gun_query.iter() {
-                commands.entity(gun_entity).despawn();
+            } else {
+                // Holster gun
+                for gun_entity in gun_query.iter() {
+                    commands.entity(gun_entity).despawn();
+                }
             }
         }
     }
 
     // Update gun position to follow player
     if gun_drawn {
-        if let Ok(player_transform) = player_query.get_single() {
+        if let Ok((player_transform, _)) = player_query.get_single() {
             for gun_entity in gun_query.iter() {
                 commands.entity(gun_entity).insert(Transform::from_xyz(
                     player_transform.translation.x + 0.5,
@@ -756,19 +825,139 @@ fn aim_system(
     }
 }
 
+// Add a shooting timer component
+#[derive(Component)]
+struct ShootingTimer(Timer);
+
 fn shooting_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     aim_state: Res<AimState>,
     mut commands: Commands,
     enemy_query: Query<Entity, With<Enemy>>,
+    mut player_query: Query<(Entity, &mut PlayerState, Option<&mut ShootingTimer>), With<Player>>,
+    time: Res<Time>,
 ) {
-    if mouse_input.just_pressed(MouseButton::Left) && aim_state.gun_drawn {
-        if let Some(target_entity) = aim_state.target_enemy {
-            // Check if the target still exists (in case it was already shot)
-            if enemy_query.get(target_entity).is_ok() {
-                // Despawn the enemy
-                commands.entity(target_entity).despawn();
+    if let Ok((player_entity, mut player_state, shooting_timer)) = player_query.get_single_mut() {
+        // Handle shooting timer
+        if let Some(mut timer) = shooting_timer {
+            timer.0.tick(time.delta());
+            if timer.0.finished() {
+                player_state.is_shooting = false;
+                commands.entity(player_entity).remove::<ShootingTimer>();
+            }
+        }
+
+        // Handle new shots
+        if mouse_input.just_pressed(MouseButton::Left) && aim_state.gun_drawn {
+            if let Some(target_entity) = aim_state.target_enemy {
+                // Check if the target still exists (in case it was already shot)
+                if enemy_query.get(target_entity).is_ok() {
+                    // Despawn the enemy
+                    commands.entity(target_entity).despawn();
+                    
+                    // Set shooting state and timer
+                    player_state.is_shooting = true;
+                    commands.entity(player_entity).insert(ShootingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
+                }
             }
         }
     }
 }
+
+fn spawn_player_when_loaded(
+    mut commands: Commands,
+    player_query: Query<Entity, (With<Player>, With<Handle<Mesh>>)>,
+    player_assets: Res<PlayerAssets>,
+    asset_server: Res<AssetServer>,
+) {
+    // Check if the cowboy scene is loaded
+    if let Some(LoadState::Loaded) = asset_server.get_load_state(&player_assets.cowboy_scene) {
+        // Replace cube with 3D model
+        if let Ok(player_entity) = player_query.get_single() {
+            commands.entity(player_entity).remove::<Handle<Mesh>>();
+            commands.entity(player_entity).remove::<Handle<StandardMaterial>>();
+            
+            // Spawn the cowboy scene as a child
+            let scene_entity = commands.spawn(SceneBundle {
+                scene: player_assets.cowboy_scene.clone(),
+                transform: Transform::from_xyz(0.0, 0.0, 0.0),
+                ..default()
+            }).id();
+            
+            // Make the scene a child of the player entity
+            commands.entity(player_entity).push_children(&[scene_entity]);
+        }
+    }
+}
+
+fn handle_animations(
+    mut animation_players: Query<&mut AnimationPlayer>,
+    player_query: Query<(Entity, &PlayerState, &Children), (With<Player>, Changed<PlayerState>)>,
+    children_query: Query<&Children>,
+    player_assets: Res<PlayerAssets>,
+    asset_server: Res<AssetServer>,
+) {
+    for (player_entity, player_state, children) in player_query.iter() {
+        // Find the AnimationPlayer in the scene hierarchy
+        let mut animation_player_entity = None;
+        
+        // Check if player itself has AnimationPlayer
+        if animation_players.get(player_entity).is_ok() {
+            animation_player_entity = Some(player_entity);
+        } else {
+            // Recursively search through children for AnimationPlayer
+            fn find_animation_player(
+                entity: Entity,
+                children_query: &Query<&Children>,
+                animation_players: &Query<&mut AnimationPlayer>,
+            ) -> Option<Entity> {
+                if animation_players.get(entity).is_ok() {
+                    return Some(entity);
+                }
+                
+                if let Ok(children) = children_query.get(entity) {
+                    for &child in children.iter() {
+                        if let Some(found) = find_animation_player(child, children_query, animation_players) {
+                            return Some(found);
+                        }
+                    }
+                }
+                None
+            }
+            
+            for &child in children.iter() {
+                if let Some(found) = find_animation_player(child, &children_query, &animation_players) {
+                    animation_player_entity = Some(found);
+                    break;
+                }
+            }
+        }
+        
+        if let Some(anim_entity) = animation_player_entity {
+            if let Ok(mut animation_player) = animation_players.get_mut(anim_entity) {
+                // Determine which animation to play based on priority
+                let new_animation = if player_state.is_shooting {
+                    &player_assets.shooting_animation
+                } else if player_state.is_aiming {
+                    &player_assets.aiming_animation
+                } else if player_state.is_running {
+                    &player_assets.running_animation
+                } else if player_state.is_moving {
+                    &player_assets.walking_animation
+                } else {
+                    &player_assets.idle_animation
+                };
+
+                // Check if all animations are loaded before playing
+                if let Some(LoadState::Loaded) = asset_server.get_load_state(new_animation) {
+                    // Only change animation if it's different from current
+                    if !animation_player.is_playing_clip(new_animation) {
+                        animation_player.play(new_animation.clone()).repeat();
+                    }
+                }
+            }
+        }
+    }
+}
+
+
