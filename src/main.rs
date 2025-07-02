@@ -40,6 +40,15 @@ struct Cactus;
 #[derive(Component)]
 struct Tree;
 
+#[derive(Component)]
+struct Enemy;
+
+#[derive(Component)]
+struct Gun;
+
+#[derive(Component)]
+struct TargetIndicator;
+
 // Resources
 #[derive(Resource)]
 struct WorldData {
@@ -53,13 +62,19 @@ struct MapVisible(bool);
 #[derive(Resource)]
 struct FpsTimer(Timer);
 
+#[derive(Resource)]
+struct AimState {
+    target_enemy: Option<Entity>,
+    gun_drawn: bool,
+}
+
 // Data structures
 struct ChunkData {
     position: IVec2,
     color: Color,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum TileType {
     Desert,    // Tan
     Grassland, // Green  
@@ -90,6 +105,10 @@ fn main() {
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .insert_resource(MapVisible(false))
         .insert_resource(FpsTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
+        .insert_resource(AimState {
+            target_enemy: None,
+            gun_drawn: false,
+        })
         .add_systems(Startup, setup)
         .add_systems(Update, (
             player_movement, 
@@ -97,6 +116,9 @@ fn main() {
             camera_zoom,
             update_explored_chunks,
             manage_world_chunks,
+            gun_control,
+            aim_system,
+            shooting_system,
             toggle_map,
             update_map_display,
             update_fps,
@@ -467,10 +489,13 @@ fn spawn_chunk_decorations(
 ) {
     let cactus_mesh = meshes.add(Cuboid::new(0.2, 1.5, 0.2));
     let tree_mesh = meshes.add(Cuboid::new(0.3, 2.0, 0.3));
+    let enemy_mesh = meshes.add(Cuboid::new(0.8, 1.8, 0.8));
     let cactus_material = materials.add(Color::rgb(0.2, 0.7, 0.2));
     let tree_material = materials.add(Color::rgb(0.4, 0.2, 0.1));
+    let enemy_material = materials.add(Color::rgb(0.6, 0.2, 0.8)); // Purple enemies
     
     let decoration_noise = Perlin::new(123);
+    let enemy_noise = Perlin::new(456);
     
     // Determine chunk biome
     let noise = Perlin::new(42);
@@ -491,6 +516,28 @@ fn spawn_chunk_decorations(
                 sample_x as f64 * 0.3 + 1000.0,
                 sample_z as f64 * 0.3 + 1000.0,
             ]);
+            
+            let enemy_value = enemy_noise.get([
+                sample_x as f64 * 0.25 + 2000.0,
+                sample_z as f64 * 0.25 + 2000.0,
+            ]);
+            
+            // Spawn enemies sporadically across all biomes (except water)
+            if biome != TileType::Water && enemy_value > 0.8 {
+                commands.spawn((
+                    PbrBundle {
+                        mesh: enemy_mesh.clone(),
+                        material: enemy_material.clone(),
+                        transform: Transform::from_xyz(
+                            sample_x as f32 * TILE_SIZE,
+                            0.9,
+                            sample_z as f32 * TILE_SIZE,
+                        ),
+                        ..default()
+                    },
+                    Enemy,
+                ));
+            }
             
             match biome {
                 TileType::Desert => {
@@ -560,5 +607,156 @@ fn camera_zoom(
         
         // Clamp zoom to min/max values
         camera_controller.zoom = camera_controller.zoom.clamp(min_zoom, max_zoom);
+    }
+}
+
+fn gun_control(
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    mut aim_state: ResMut<AimState>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    player_query: Query<&Transform, With<Player>>,
+    gun_query: Query<Entity, With<Gun>>,
+) {
+    let gun_drawn = mouse_input.pressed(MouseButton::Right);
+    
+    if gun_drawn != aim_state.gun_drawn {
+        aim_state.gun_drawn = gun_drawn;
+        
+        if gun_drawn {
+            // Draw gun
+            if let Ok(player_transform) = player_query.get_single() {
+                let gun_mesh = meshes.add(Cuboid::new(0.1, 0.1, 0.6));
+                let gun_material = materials.add(Color::rgb(0.3, 0.3, 0.3));
+                
+                commands.spawn((
+                    PbrBundle {
+                        mesh: gun_mesh,
+                        material: gun_material,
+                        transform: Transform::from_xyz(
+                            player_transform.translation.x + 0.5,
+                            player_transform.translation.y + 0.2,
+                            player_transform.translation.z,
+                        ),
+                        ..default()
+                    },
+                    Gun,
+                ));
+            }
+        } else {
+            // Holster gun
+            for gun_entity in gun_query.iter() {
+                commands.entity(gun_entity).despawn();
+            }
+        }
+    }
+    
+    // Update gun position to follow player
+    if gun_drawn {
+        if let Ok(player_transform) = player_query.get_single() {
+            for gun_entity in gun_query.iter() {
+                commands.entity(gun_entity).insert(Transform::from_xyz(
+                    player_transform.translation.x + 0.5,
+                    player_transform.translation.y + 0.2,
+                    player_transform.translation.z,
+                ));
+            }
+        }
+    }
+}
+
+fn aim_system(
+    windows: Query<&Window>,
+    camera_query: Query<(&Camera, &GlobalTransform)>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut aim_state: ResMut<AimState>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    target_indicator_query: Query<Entity, With<TargetIndicator>>,
+) {
+    // Clear existing target indicator
+    for indicator_entity in target_indicator_query.iter() {
+        commands.entity(indicator_entity).despawn();
+    }
+    
+    aim_state.target_enemy = None;
+    
+    if !aim_state.gun_drawn {
+        return;
+    }
+    
+    let window = windows.single();
+    let (camera, camera_transform) = camera_query.single();
+    
+    if let Some(cursor_position) = window.cursor_position() {
+        // Cast ray from camera through cursor position
+        if let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) {
+            let mut closest_distance = f32::INFINITY;
+            let mut closest_enemy = None;
+            
+            // Check for enemies within aim assist range
+            for (enemy_entity, enemy_transform) in enemy_query.iter() {
+                let enemy_pos = enemy_transform.translation;
+                
+                // Calculate distance from ray to enemy
+                let ray_to_enemy = enemy_pos - ray.origin;
+                let projection = ray_to_enemy.dot(*ray.direction);
+                
+                if projection > 0.0 {
+                    let closest_point = ray.origin + *ray.direction * projection;
+                    let distance_to_ray = (enemy_pos - closest_point).length();
+                    
+                    // Aim assist: snap to enemy if cursor is close enough
+                    if distance_to_ray < 2.0 && projection < closest_distance {
+                        closest_distance = projection;
+                        closest_enemy = Some(enemy_entity);
+                    }
+                }
+            }
+            
+            // If we found a target, show indicator and set target
+            if let Some(target_entity) = closest_enemy {
+                aim_state.target_enemy = Some(target_entity);
+                
+                // Get target position for indicator
+                if let Ok((_, target_transform)) = enemy_query.get(target_entity) {
+                    let indicator_mesh = meshes.add(Torus::new(0.3, 0.1));
+                    let indicator_material = materials.add(Color::rgb(1.0, 0.0, 0.0)); // Red target indicator
+                    
+                    commands.spawn((
+                        PbrBundle {
+                            mesh: indicator_mesh,
+                            material: indicator_material,
+                            transform: Transform::from_xyz(
+                                target_transform.translation.x,
+                                target_transform.translation.y + 1.0,
+                                target_transform.translation.z,
+                            ),
+                            ..default()
+                        },
+                        TargetIndicator,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn shooting_system(
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    aim_state: Res<AimState>,
+    mut commands: Commands,
+    enemy_query: Query<Entity, With<Enemy>>,
+) {
+    if mouse_input.just_pressed(MouseButton::Left) && aim_state.gun_drawn {
+        if let Some(target_entity) = aim_state.target_enemy {
+            // Check if the target still exists (in case it was already shot)
+            if enemy_query.get(target_entity).is_ok() {
+                // Despawn the enemy
+                commands.entity(target_entity).despawn();
+            }
+        }
     }
 }
