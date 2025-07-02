@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::asset::LoadState;
+use bevy::prelude::*;
 use noise::{NoiseFn, Perlin};
 use std::collections::HashMap;
 
@@ -7,6 +7,12 @@ const TILE_SIZE: f32 = 1.0;
 const WORLD_SIZE: i32 = 100; // 100x100 world
 const CHUNK_SIZE: i32 = 16; // 16x16 tiles per chunk (larger chunks for better performance)
 const RENDER_DISTANCE: i32 = 3; // Only render chunks within 3 chunk radius
+struct COLORS;
+impl COLORS {
+    pub const TAN: Color = Color::rgb(0.8, 0.7, 0.4);
+    pub const GREEN: Color = Color::rgb(0.2, 0.6, 0.2);
+    pub const BLUE: Color = Color::rgb(0.2, 0.4, 0.8);
+}
 
 // Components
 #[derive(Component)]
@@ -123,9 +129,9 @@ impl TileType {
 
     fn get_color(&self) -> Color {
         match self {
-            TileType::Desert => Color::rgb(0.8, 0.7, 0.4), // Tan
-            TileType::Grassland => Color::rgb(0.2, 0.6, 0.2), // Green
-            TileType::Water => Color::rgb(0.2, 0.4, 0.8),  // Blue
+            TileType::Desert => COLORS::TAN,
+            TileType::Grassland => COLORS::GREEN,
+            TileType::Water => COLORS::BLUE,
         }
     }
 }
@@ -179,14 +185,20 @@ fn setup(
 
     // Load cowboy models and animations from the combined GLB file
     let cowboy_scene: Handle<Scene> = asset_server.load("models/cowboy_combined.glb#Scene0");
-    let idle_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation4");
-    let walking_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation9");
-    let running_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation5");
-    let shooting_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation7");
-    let aiming_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation0");
-    let holster_animation: Handle<AnimationClip> = asset_server.load("models/cowboy_combined.glb#Animation2");
-    
-    commands.insert_resource(PlayerAssets { 
+    let idle_animation: Handle<AnimationClip> =
+        asset_server.load("models/cowboy_combined.glb#Animation4");
+    let walking_animation: Handle<AnimationClip> =
+        asset_server.load("models/cowboy_combined.glb#Animation9");
+    let running_animation: Handle<AnimationClip> =
+        asset_server.load("models/cowboy_combined.glb#Animation5");
+    let shooting_animation: Handle<AnimationClip> =
+        asset_server.load("models/cowboy_combined.glb#Animation7");
+    let aiming_animation: Handle<AnimationClip> =
+        asset_server.load("models/cowboy_combined.glb#Animation0");
+    let holster_animation: Handle<AnimationClip> =
+        asset_server.load("models/cowboy_combined.glb#Animation2");
+
+    commands.insert_resource(PlayerAssets {
         cowboy_scene,
         idle_animation,
         walking_animation,
@@ -312,10 +324,11 @@ fn player_movement(
     if let Ok((mut transform, mut player_state)) = player_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
         let base_speed = 5.0;
-        let run_multiplier = 2.0;
+        let run_multiplier = -200.0;
 
         // Check if running (Shift key held)
-        let is_running = keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
+        let is_running = keyboard_input.pressed(KeyCode::ShiftLeft)
+            || keyboard_input.pressed(KeyCode::ShiftRight);
 
         // Get camera transform to calculate relative movement
         if let Ok(camera_transform) = camera_query.get_single() {
@@ -894,10 +907,12 @@ fn shooting_system(
                 if enemy_query.get(target_entity).is_ok() {
                     // Despawn the enemy
                     commands.entity(target_entity).despawn();
-                    
+
                     // Set shooting state and timer
                     player_state.is_shooting = true;
-                    commands.entity(player_entity).insert(ShootingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
+                    commands
+                        .entity(player_entity)
+                        .insert(ShootingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
                 }
             }
         }
@@ -915,17 +930,23 @@ fn spawn_player_when_loaded(
         // Replace cube with 3D model
         if let Ok(player_entity) = player_query.get_single() {
             commands.entity(player_entity).remove::<Handle<Mesh>>();
-            commands.entity(player_entity).remove::<Handle<StandardMaterial>>();
-            
+            commands
+                .entity(player_entity)
+                .remove::<Handle<StandardMaterial>>();
+
             // Spawn the cowboy scene as a child
-            let scene_entity = commands.spawn(SceneBundle {
-                scene: player_assets.cowboy_scene.clone(),
-                transform: Transform::from_xyz(0.0, 0.0, 0.0),
-                ..default()
-            }).id();
-            
+            let scene_entity = commands
+                .spawn(SceneBundle {
+                    scene: player_assets.cowboy_scene.clone(),
+                    transform: Transform::from_xyz(0.0, 0.0, 0.0),
+                    ..default()
+                })
+                .id();
+
             // Make the scene a child of the player entity
-            commands.entity(player_entity).push_children(&[scene_entity]);
+            commands
+                .entity(player_entity)
+                .push_children(&[scene_entity]);
         }
     }
 }
@@ -940,7 +961,7 @@ fn handle_animations(
     for (player_entity, player_state, children) in player_query.iter() {
         // Find the AnimationPlayer in the scene hierarchy
         let mut animation_player_entity = None;
-        
+
         // Check if player itself has AnimationPlayer
         if animation_players.get(player_entity).is_ok() {
             animation_player_entity = Some(player_entity);
@@ -954,25 +975,29 @@ fn handle_animations(
                 if animation_players.get(entity).is_ok() {
                     return Some(entity);
                 }
-                
+
                 if let Ok(children) = children_query.get(entity) {
                     for &child in children.iter() {
-                        if let Some(found) = find_animation_player(child, children_query, animation_players) {
+                        if let Some(found) =
+                            find_animation_player(child, children_query, animation_players)
+                        {
                             return Some(found);
                         }
                     }
                 }
                 None
             }
-            
+
             for &child in children.iter() {
-                if let Some(found) = find_animation_player(child, &children_query, &animation_players) {
+                if let Some(found) =
+                    find_animation_player(child, &children_query, &animation_players)
+                {
                     animation_player_entity = Some(found);
                     break;
                 }
             }
         }
-        
+
         if let Some(anim_entity) = animation_player_entity {
             if let Ok(mut animation_player) = animation_players.get_mut(anim_entity) {
                 // Determine which animation to play based on priority

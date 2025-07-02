@@ -6,3 +6,13 @@ edition = "2024"
 [dependencies]
 bevy = "0.13"
 noise = "0.8"
+
+[profile.release]
+opt-level = 3           # 0 = none, 3 = max speed; "z"/"s" favour size
+codegen-units = 1       # one LLVM unit ⇒ more cross-module optimisation
+lto = "fat"             # whole-program Link-Time Optimisation
+strip = "symbols"       # remove debug symbols from final artefact
+debug = 0               # no DWARF (keeps binary smaller)
+incremental = false     # disable incremental compilation
+overflow-checks = false
+panic = "abort"         # eliminates stack-unwind tables
