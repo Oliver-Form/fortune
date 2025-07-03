@@ -610,22 +610,48 @@ fn update_map_display(
         }
         if map_visible.0 {
             if let Ok(player_transform) = player_query.get_single() {
-                // Calculate chunk coordinates
-                let chunk_x = (player_transform.translation.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
-                let chunk_y = (player_transform.translation.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
-                // Add green square for chunk
+                // Map UI green square always represents the whole map
+                let map_width_px = 400.0; // 80% of 500px, adjust as needed
+                let map_height_px = 400.0;
+                let map_left_px = 0.0;
+                let map_top_px = 0.0;
+
+                // Calculate player's position as a percentage of the map
+                let player_x = player_transform.translation.x.clamp(0.0, (MAP_WIDTH as f32 - 1.0) * TILE_SIZE);
+                let player_y = player_transform.translation.z.clamp(0.0, (MAP_HEIGHT as f32 - 1.0) * TILE_SIZE);
+                let percent_x = player_x / (MAP_WIDTH as f32 * TILE_SIZE);
+                let percent_y = player_y / (MAP_HEIGHT as f32 * TILE_SIZE);
+
+                // Add green square for the whole map
                 let marker = commands.spawn(NodeBundle {
                     style: Style {
-                        width: Val::Px(16.0),
-                        height: Val::Px(16.0),
+                        width: Val::Px(map_width_px),
+                        height: Val::Px(map_height_px),
                         position_type: PositionType::Absolute,
-                        left: Val::Percent(chunk_x as f32 / NUM_CHUNKS_X as f32 * 80.0),
-                        top: Val::Percent(chunk_y as f32 / NUM_CHUNKS_Y as f32 * 80.0),
+                        left: Val::Px(map_left_px),
+                        top: Val::Px(map_top_px),
                         ..default()
                     },
                     background_color: Color::GREEN.into(),
                     ..default()
-                }).insert(MapPlayerMarker).id();
+                })
+                .with_children(|parent| {
+                    // Add a small red dot to mark the player's position on the map
+                    parent.spawn(NodeBundle {
+                        style: Style {
+                            width: Val::Px(8.0),
+                            height: Val::Px(8.0),
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(percent_x * map_width_px - 4.0),
+                            top: Val::Px(percent_y * map_height_px - 4.0),
+                            ..default()
+                        },
+                        background_color: Color::RED.into(),
+                        ..default()
+                    });
+                })
+                .insert(MapPlayerMarker)
+                .id();
                 commands.entity(map_ui_entity).add_child(marker);
             }
         }
