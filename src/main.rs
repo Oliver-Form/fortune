@@ -75,6 +75,13 @@ struct Gun;
 #[derive(Component)]
 struct TargetIndicator;
 
+#[derive(Resource, Default, PartialEq, Clone, Copy, Debug)]
+enum CameraView {
+    #[default]
+    Isometric,
+    FirstPerson,
+}
+
 // Resources
 #[derive(Resource)]
 struct WorldData {
@@ -104,6 +111,9 @@ struct PlayerAssets {
     aiming_animation: Handle<AnimationClip>,
     holster_animation: Handle<AnimationClip>,
 }
+
+#[derive(Resource)]
+struct CameraViewResource(CameraView);
 
 // Data structures
 struct ChunkData {
@@ -146,6 +156,7 @@ fn main() {
             target_enemy: None,
             gun_drawn: false,
         })
+        .insert_resource(CameraViewResource(CameraView::Isometric))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -164,6 +175,7 @@ fn main() {
                 update_biome_display,
                 spawn_player_when_loaded,
                 handle_animations,
+                toggle_camera_view,
             ),
         )
         .run();
@@ -414,17 +426,32 @@ fn camera_follow(
         (&mut Transform, &CameraController),
         (With<CameraController>, Without<Player>),
     >,
+    camera_view: Res<CameraViewResource>,
 ) {
     if let (Ok(player_transform), Ok((mut camera_transform, camera_controller))) =
         (player_query.get_single(), camera_query.get_single_mut())
     {
-        // Use zoom value for offset distance
-        let zoom_distance = camera_controller.zoom;
-        let offset = Vec3::new(zoom_distance, zoom_distance, zoom_distance);
-        camera_transform.translation = player_transform.translation + offset;
+        match camera_view.0 {
+            CameraView::Isometric => {
+                // Use zoom value for offset distance
+                let zoom_distance = camera_controller.zoom;
+                let offset = Vec3::new(zoom_distance, zoom_distance, zoom_distance);
+                camera_transform.translation = player_transform.translation + offset;
 
-        // Always look at the player
-        camera_transform.look_at(player_transform.translation, Vec3::Y);
+                // Always look at the player
+                camera_transform.look_at(player_transform.translation, Vec3::Y);
+            }
+            CameraView::FirstPerson => {
+                // Position camera at player's head
+                let head_offset = Vec3::new(0.0, 1.8, 0.0); // Adjust Y for head height
+                camera_transform.translation = player_transform.translation + head_offset;
+
+                // Look in the direction the player is facing
+                let forward = player_transform.forward();
+                let look_at_target = camera_transform.translation + *forward;
+                camera_transform.look_at(look_at_target, Vec3::Y);
+            }
+        }
     }
 }
 
@@ -1022,5 +1049,17 @@ fn handle_animations(
                 }
             }
         }
+    }
+}
+
+fn toggle_camera_view(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut camera_view: ResMut<CameraViewResource>,
+) {
+    if keyboard_input.just_pressed(KeyCode::F5) {
+        camera_view.0 = match camera_view.0 {
+            CameraView::Isometric => CameraView::FirstPerson,
+            CameraView::FirstPerson => CameraView::Isometric,
+        };
     }
 }
