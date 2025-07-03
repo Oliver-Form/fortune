@@ -1,3 +1,6 @@
+mod constants;
+use constants::*;
+
 use bevy::asset::LoadState;
 use bevy::prelude::*;
 use bevy::render::mesh;
@@ -6,21 +9,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::hash::Hasher;
 use std::io::{BufReader, Read};
-
-const TILE_SIZE: f32 = 1.0;
-const MAP_WIDTH: i32 = 256;
-const MAP_HEIGHT: i32 = 256;
-const CHUNK_SIZE: i32 = 16; // 16x16 tiles per chunk
-const RENDER_DISTANCE: i32 = 1; // Render a 3x3 grid of chunks (1 chunk in each direction)
-struct COLORS;
-impl COLORS {
-    pub const TAN: Color = Color::rgb(0.8, 0.7, 0.4);
-    pub const GREEN: Color = Color::rgb(0.2, 0.6, 0.2);
-    pub const BLUE: Color = Color::rgb(0.2, 0.4, 0.8);
-    pub const GRASS_GREEN: Color = Color::rgb(0.1, 0.8, 0.1);
-    pub const WATER_BLUE: Color = Color::rgb(0.1, 0.1, 0.8);
-    pub const DESERT_TAN: Color = Color::rgb(0.8, 0.7, 0.4);
-}
 
 // Components
 #[derive(Component)]
@@ -68,6 +56,12 @@ struct Gun;
 #[derive(Component)]
 struct TargetIndicator;
 
+#[derive(Component)]
+struct MapPlayerMarker;
+
+#[derive(Component)]
+struct CoordText;
+
 #[derive(Resource, Default, PartialEq, Clone, Copy, Debug)]
 enum CameraView {
     #[default]
@@ -108,6 +102,9 @@ struct PlayerAssets {
 
 #[derive(Resource)]
 struct CameraViewResource(CameraView);
+
+#[derive(Resource, Default)]
+struct ChunkBorderVisible(bool);
 
 // Data structures
 struct ChunkData {
@@ -171,6 +168,7 @@ fn main() {
             gun_drawn: false,
         })
         .insert_resource(CameraViewResource(CameraView::Isometric))
+        .insert_resource(ChunkBorderVisible(false))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -190,6 +188,7 @@ fn main() {
                 spawn_player_when_loaded,
                 handle_animations,
                 toggle_camera_view,
+                toggle_chunk_borders,
             ),
         )
         .run();
@@ -256,11 +255,13 @@ fn setup(
     });
 
     // Create temporary player cube (will be replaced when model loads)
+    let start_x = (MAP_WIDTH as f32) / 2.0;
+    let start_z = (MAP_HEIGHT as f32) / 2.0;
     commands.spawn((
         PbrBundle {
-            mesh: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+            mesh: meshes.add(Cuboid::new(PLAYER_WIDTH, PLAYER_HEIGHT, PLAYER_DEPTH)),
             material: materials.add(Color::rgb(0.8, 0.2, 0.2)),
-            transform: Transform::from_xyz(0.0, 0.5, 0.0),
+            transform: Transform::from_xyz(start_x, PLAYER_HEIGHT / 2.0, start_z),
             ..default()
         },
         Player,
@@ -360,6 +361,24 @@ fn setup(
         }),
         BiomeText,
     ));
+    // Add coordinates text below biome
+    commands.spawn((
+        TextBundle::from_section(
+            "(0.0, 0.0)",
+            TextStyle {
+                font_size: 18.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            top: Val::Px(70.0),
+            left: Val::Px(10.0),
+            ..default()
+        }),
+        CoordText,
+    ));
 }
 
 fn player_movement(
@@ -372,8 +391,8 @@ fn player_movement(
 ) {
     if let Ok((mut transform, mut player_state)) = player_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
-        let base_speed = 5.0;
-        let run_multiplier = 2.0;
+        let walk_speed = PLAYER_WALK_SPEED;
+        let run_speed = PLAYER_RUN_SPEED;
 
         // Check if running (Shift key held)
         let is_running = keyboard_input.pressed(KeyCode::ShiftLeft)
@@ -435,7 +454,7 @@ fn player_movement(
                             if direction.length() > 0.0 {
                                 direction = direction.normalize();
                                 
-                                let speed = if is_running { base_speed * run_multiplier } else { base_speed };
+                                let speed = if is_running { run_speed } else { walk_speed };
                                 let new_pos = transform.translation + direction * speed * time.delta_seconds();
 
                                 // Keep player within world bounds
@@ -505,8 +524,7 @@ fn player_movement(
         // Normalize direction and apply movement
         if direction.length() > 0.0 {
             direction = direction.normalize();
-            
-            let speed = if is_running { base_speed * run_multiplier } else { base_speed };
+            let speed = if is_running { run_speed } else { walk_speed };
             let new_pos = transform.translation + direction * speed * time.delta_seconds();
 
             // Keep player within world bounds
@@ -575,14 +593,42 @@ fn toggle_map(keyboard_input: Res<ButtonInput<KeyCode>>, mut map_visible: ResMut
 
 fn update_map_display(
     map_visible: Res<MapVisible>,
-    mut map_ui_query: Query<&mut Style, With<MapUI>>,
+    mut map_ui_query: Query<(Entity, &mut Style), With<MapUI>>,
+    player_query: Query<&Transform, With<Player>>,
+    mut commands: Commands,
+    marker_query: Query<Entity, With<MapPlayerMarker>>,
 ) {
-    if let Ok(mut style) = map_ui_query.get_single_mut() {
+    if let Ok((map_ui_entity, mut style)) = map_ui_query.get_single_mut() {
         style.display = if map_visible.0 {
             Display::Flex
         } else {
             Display::None
         };
+        // Remove old marker if exists
+        for entity in marker_query.iter() {
+            commands.entity(entity).despawn_recursive();
+        }
+        if map_visible.0 {
+            if let Ok(player_transform) = player_query.get_single() {
+                // Calculate chunk coordinates
+                let chunk_x = (player_transform.translation.x / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
+                let chunk_y = (player_transform.translation.z / (CHUNK_SIZE as f32 * TILE_SIZE)) as i32;
+                // Add green square for chunk
+                let marker = commands.spawn(NodeBundle {
+                    style: Style {
+                        width: Val::Px(16.0),
+                        height: Val::Px(16.0),
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(chunk_x as f32 / NUM_CHUNKS_X as f32 * 80.0),
+                        top: Val::Percent(chunk_y as f32 / NUM_CHUNKS_Y as f32 * 80.0),
+                        ..default()
+                    },
+                    background_color: Color::GREEN.into(),
+                    ..default()
+                }).insert(MapPlayerMarker).id();
+                commands.entity(map_ui_entity).add_child(marker);
+            }
+        }
     }
 }
 
@@ -607,13 +653,19 @@ fn update_fps(
     }
 }
 
+use bevy::ecs::system::ParamSet;
+
 fn update_biome_display(
     player_query: Query<&Transform, With<Player>>,
     world_data: Res<WorldData>,
-    mut biome_text_query: Query<&mut Text, With<BiomeText>>,
+    mut param_set: ParamSet<(
+        Query<&mut Text, With<BiomeText>>,
+        Query<&mut Text, With<CoordText>>,
+    )>,
 ) {
     if let Ok(player_transform) = player_query.get_single() {
-        if let Ok(mut text) = biome_text_query.get_single_mut() {
+        // Update biome text
+        if let Ok(mut text) = param_set.p0().get_single_mut() {
             let tile_x = (player_transform.translation.x / TILE_SIZE) as i32;
             let tile_y = (player_transform.translation.z / TILE_SIZE) as i32;
 
@@ -621,6 +673,12 @@ fn update_biome_display(
 
             text.sections[0].value = current_biome.get_name().to_string();
             text.sections[0].style.color = current_biome.get_color();
+        }
+        // Update coordinates text
+        if let Ok(mut coord_text) = param_set.p1().get_single_mut() {
+            let x = player_transform.translation.x;
+            let z = player_transform.translation.z;
+            coord_text.sections[0].value = format!("({:.1}, {:.1})", x, z);
         }
     }
 }
@@ -642,6 +700,7 @@ fn manage_world_chunks(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     chunk_entities: Query<(Entity, &ChunkEntity)>,
+    chunk_border_visible: Res<ChunkBorderVisible>,
 ) {
     if let Ok(player_transform) = player_query.get_single() {
         let player_chunk = IVec2::new(
@@ -668,7 +727,7 @@ fn manage_world_chunks(
                 {
                     if !world_data.chunks.contains_key(&chunk_pos) {
                         if let Some(chunk_data) = generate_chunk_from_map(&world_data, chunk_pos) {
-                            spawn_chunk(&chunk_data, &mut commands, &mut meshes, &mut materials);
+                            spawn_chunk(&chunk_data, &mut commands, &mut meshes, &mut materials, &chunk_border_visible);
                             world_data.chunks.insert(chunk_pos, chunk_data);
                         }
                     }
@@ -710,6 +769,7 @@ fn spawn_chunk(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
+    chunk_border_visible: &Res<ChunkBorderVisible>,
 ) {
     let chunk_world_x = chunk_data.position.x as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
     let chunk_world_z = chunk_data.position.y as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
@@ -791,6 +851,37 @@ fn spawn_chunk(
 
             // Parent the quad to the chunk entity
             commands.entity(parent_chunk_entity).add_child(quad_entity);
+        }
+    }
+
+    // Draw chunk border if enabled
+    if chunk_border_visible.0 {
+        let border_color = Color::BLACK;
+        let border_thickness = 0.05;
+        let border_length = CHUNK_SIZE as f32 * TILE_SIZE;
+        let y = 0.01; // Slightly above ground to avoid z-fighting
+        // Four lines: top, bottom, left, right
+        let borders = [
+            // Top
+            (Vec3::new(border_length / 2.0, y, 0.0), border_length, 0.0),
+            // Bottom
+            (Vec3::new(border_length / 2.0, y, border_length), border_length, 0.0),
+            // Left
+            (Vec3::new(0.0, y, border_length / 2.0), border_length, std::f32::consts::FRAC_PI_2),
+            // Right
+            (Vec3::new(border_length, y, border_length / 2.0), border_length, std::f32::consts::FRAC_PI_2),
+        ];
+        for (pos, len, rot) in borders.iter() {
+            let border_mesh = meshes.add(Cuboid::new(*len, border_thickness, border_thickness));
+            let border_material = materials.add(border_color);
+            let border_entity = commands.spawn(PbrBundle {
+                mesh: border_mesh,
+                material: border_material,
+                transform: Transform::from_translation(*pos)
+                    .with_rotation(Quat::from_rotation_y(*rot)),
+                ..default()
+            }).id();
+            commands.entity(parent_chunk_entity).add_child(border_entity);
         }
     }
 
@@ -1222,5 +1313,14 @@ fn toggle_camera_view(
                 }
             }
         }
+    }
+}
+
+fn toggle_chunk_borders(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut chunk_border_visible: ResMut<ChunkBorderVisible>,
+) {
+    if keyboard_input.just_pressed(KeyCode::F3) {
+        chunk_border_visible.0 = !chunk_border_visible.0;
     }
 }
