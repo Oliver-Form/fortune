@@ -331,6 +331,8 @@ fn player_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut player_query: Query<(&mut Transform, &mut PlayerState), With<Player>>,
     camera_query: Query<&Transform, (With<CameraController>, Without<Player>)>,
+    camera_view: Res<CameraViewResource>,
+    mut mouse_motion: EventReader<bevy::input::mouse::MouseMotion>,
     time: Res<Time>,
 ) {
     if let Ok((mut transform, mut player_state)) = player_query.get_single_mut() {
@@ -342,59 +344,121 @@ fn player_movement(
         let is_running = keyboard_input.pressed(KeyCode::ShiftLeft)
             || keyboard_input.pressed(KeyCode::ShiftRight);
 
-        // Get camera transform to calculate relative movement
-        if let Ok(camera_transform) = camera_query.get_single() {
-            // Calculate camera's forward and right vectors (projected onto XZ plane)
-            let camera_forward = camera_transform.forward();
-            let camera_right = camera_transform.right();
-            
-            // Project onto XZ plane (ignore Y component for ground movement)
-            let forward_xz = Vec3::new(camera_forward.x, 0.0, camera_forward.z).normalize();
-            let right_xz = Vec3::new(camera_right.x, 0.0, camera_right.z).normalize();
+        match camera_view.0 {
+            CameraView::Isometric => {
+                // Original third-person movement logic
+                if let Ok(camera_transform) = camera_query.get_single() {
+                    // Calculate camera's forward and right vectors (projected onto XZ plane)
+                    let camera_forward = camera_transform.forward();
+                    let camera_right = camera_transform.right();
+                    
+                    // Project onto XZ plane (ignore Y component for ground movement)
+                    let forward_xz = Vec3::new(camera_forward.x, 0.0, camera_forward.z).normalize();
+                    let right_xz = Vec3::new(camera_right.x, 0.0, camera_right.z).normalize();
 
-            // Track which keys are pressed for rotation calculation
-            let w_pressed = keyboard_input.pressed(KeyCode::KeyW);
-            let s_pressed = keyboard_input.pressed(KeyCode::KeyS);
-            let a_pressed = keyboard_input.pressed(KeyCode::KeyA);
-            let d_pressed = keyboard_input.pressed(KeyCode::KeyD);
+                    // Track which keys are pressed for rotation calculation
+                    let w_pressed = keyboard_input.pressed(KeyCode::KeyW);
+                    let s_pressed = keyboard_input.pressed(KeyCode::KeyS);
+                    let a_pressed = keyboard_input.pressed(KeyCode::KeyA);
+                    let d_pressed = keyboard_input.pressed(KeyCode::KeyD);
 
-            // WASD movement relative to camera orientation
-            if w_pressed {
-                direction += forward_xz; // Move away from camera (up on screen)
-            }
-            if s_pressed {
-                direction -= forward_xz; // Move toward camera (down on screen)
-            }
-            if a_pressed {
-                direction -= right_xz; // Move left relative to camera
-            }
-            if d_pressed {
-                direction += right_xz; // Move right relative to camera
-            }
+                    // WASD movement relative to camera orientation
+                    if w_pressed {
+                        direction += forward_xz; // Move away from camera (up on screen)
+                    }
+                    if s_pressed {
+                        direction -= forward_xz; // Move toward camera (down on screen)
+                    }
+                    if a_pressed {
+                        direction -= right_xz; // Move left relative to camera
+                    }
+                    if d_pressed {
+                        direction += right_xz; // Move right relative to camera
+                    }
 
-            // Calculate target rotation based on key combinations (in degrees)
-            let target_angle_degrees: f32 = match (w_pressed, s_pressed, a_pressed, d_pressed) {
-                // Single keys
-                (true, false, false, false) => 225.0,    // W only
-                (false, true, false, false) => 45.0,  // S only
-                (false, false, true, false) => 315.0,  // A only
-                (false, false, false, true) => 135.0,   // D only
+                    // Calculate target rotation based on key combinations (in degrees)
+                    let target_angle_degrees: f32 = match (w_pressed, s_pressed, a_pressed, d_pressed) {
+                        // Single keys
+                        (true, false, false, false) => 225.0,    // W only
+                        (false, true, false, false) => 45.0,  // S only
+                        (false, false, true, false) => 315.0,  // A only
+                        (false, false, false, true) => 135.0,   // D only
+                        
+                        // Diagonal combinations
+                        (true, false, false, true) => 180.0,    // W+D
+                        (true, false, true, false) => 270.0,   // W+A
+                        (false, true, false, true) => 90.0,   // S+D
+                        (false, true, true, false) => 360.0,   // S+A
+                        
+                        // Default case (no movement or conflicting keys)
+                        _ => {
+                            // Update movement state for isometric mode
+                            player_state.is_moving = direction.length() > 0.0;
+                            player_state.is_running = player_state.is_moving && is_running;
+
+                            // Normalize direction and apply movement
+                            if direction.length() > 0.0 {
+                                direction = direction.normalize();
+                                
+                                let speed = if is_running { base_speed * run_multiplier } else { base_speed };
+                                let new_pos = transform.translation + direction * speed * time.delta_seconds();
+
+                                // Keep player within world bounds
+                                let max_pos = (WORLD_SIZE as f32 - 1.0) * TILE_SIZE;
+                                transform.translation = Vec3::new(
+                                    new_pos.x.clamp(0.0, max_pos),
+                                    0.5, // Keep above ground
+                                    new_pos.z.clamp(0.0, max_pos),
+                                );
+                            }
+                            return;
+                        }
+                    };
+
+                    // Convert degrees to radians and apply rotation
+                    if direction.length() > 0.0 {
+                        let target_angle_radians = target_angle_degrees.to_radians();
+                        let target_rotation = Quat::from_rotation_y(target_angle_radians);
+                        transform.rotation = transform.rotation.slerp(target_rotation, 10.0 * time.delta_seconds());
+                    }
+                }
+            }
+            CameraView::FirstPerson => {
+                // FPS-style movement logic
+                let w_pressed = keyboard_input.pressed(KeyCode::KeyW);
+                let s_pressed = keyboard_input.pressed(KeyCode::KeyS);
+                let a_pressed = keyboard_input.pressed(KeyCode::KeyA);
+                let d_pressed = keyboard_input.pressed(KeyCode::KeyD);
+
+                // Get player's forward and right vectors
+                let player_forward = transform.forward();
+                let player_right = transform.right();
                 
-                // Diagonal combinations
-                (true, false, false, true) => 180.0,    // W+D
-                (true, false, true, false) => 270.0,   // W+A
-                (false, true, false, true) => 90.0,   // S+D
-                (false, true, true, false) => 360.0,   // S+A
-                
-                // Default case (no movement or conflicting keys)
-                _ => return, // Don't change rotation if no clear direction
-            };
+                // Project onto XZ plane for ground movement
+                let forward_xz = Vec3::new(player_forward.x, 0.0, player_forward.z).normalize();
+                let right_xz = Vec3::new(player_right.x, 0.0, player_right.z).normalize();
 
-            // Convert degrees to radians and apply rotation
-            if direction.length() > 0.0 {
-                let target_angle_radians = target_angle_degrees.to_radians();
-                let target_rotation = Quat::from_rotation_y(target_angle_radians);
-                transform.rotation = transform.rotation.slerp(target_rotation, 10.0 * time.delta_seconds());
+                // WASD movement relative to player orientation
+                if w_pressed {
+                    direction -= forward_xz; // Move forward (inverted because of camera orientation)
+                }
+                if s_pressed {
+                    direction += forward_xz; // Move backward (inverted because of camera orientation)
+                }
+                if a_pressed {
+                    direction += right_xz; // Strafe left (inverted because of camera orientation)
+                }
+                if d_pressed {
+                    direction -= right_xz; // Strafe right (inverted because of camera orientation)
+                }
+
+                // Mouse look for rotation
+                let mouse_sensitivity = 0.002;
+                for motion in mouse_motion.read() {
+                    // Rotate player around Y axis for horizontal look
+                    let yaw_rotation = Quat::from_rotation_y(-motion.delta.x * mouse_sensitivity);
+                    transform.rotation = yaw_rotation * transform.rotation;
+                }
             }
         }
 
@@ -446,10 +510,8 @@ fn camera_follow(
                 let head_offset = Vec3::new(0.0, 1.8, 0.0); // Adjust Y for head height
                 camera_transform.translation = player_transform.translation + head_offset;
 
-                // Look in the direction the player is facing
-                let forward = player_transform.forward();
-                let look_at_target = camera_transform.translation + *forward;
-                camera_transform.look_at(look_at_target, Vec3::Y);
+                // Set camera rotation to match player rotation but face forward
+                camera_transform.rotation = player_transform.rotation * Quat::from_rotation_y(std::f32::consts::PI);
             }
         }
     }
@@ -1055,11 +1117,28 @@ fn handle_animations(
 fn toggle_camera_view(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut camera_view: ResMut<CameraViewResource>,
+    mut windows: Query<&mut Window>,
 ) {
     if keyboard_input.just_pressed(KeyCode::F5) {
-        camera_view.0 = match camera_view.0 {
+        let new_view = match camera_view.0 {
             CameraView::Isometric => CameraView::FirstPerson,
             CameraView::FirstPerson => CameraView::Isometric,
         };
+        
+        camera_view.0 = new_view;
+        
+        // Handle mouse cursor grab based on camera mode
+        if let Ok(mut window) = windows.get_single_mut() {
+            match new_view {
+                CameraView::FirstPerson => {
+                    window.cursor.grab_mode = bevy::window::CursorGrabMode::Locked;
+                    window.cursor.visible = false;
+                }
+                CameraView::Isometric => {
+                    window.cursor.grab_mode = bevy::window::CursorGrabMode::None;
+                    window.cursor.visible = true;
+                }
+            }
+        }
     }
 }
