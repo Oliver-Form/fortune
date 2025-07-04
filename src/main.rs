@@ -3,7 +3,10 @@ use constants::*;
 
 use bevy::asset::LoadState;
 use bevy::prelude::*;
-use bevy::render::mesh;
+use bevy::render::mesh::Indices;
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::render_resource::PrimitiveTopology;
+use bevy::window::PresentMode; // switches off vsync
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::fs::File;
@@ -112,7 +115,7 @@ struct ChunkData {
     tiles: [[TileType; CHUNK_SIZE as usize]; CHUNK_SIZE as usize],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TileType {
     Grass,    // 0
     Water,    // 1
@@ -159,7 +162,13 @@ impl TileType {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                present_mode: PresentMode::Immediate,
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .insert_resource(MapVisible(false))
         .insert_resource(FpsTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
@@ -202,7 +211,7 @@ fn setup(
 ) {
     // Load map data from file
     let mut tiles = Vec::new();
-    if let Ok(file) = File::open("src/file.map") {
+    if let Ok(file) = File::open("src/file_checkers.map") {
         let mut reader = BufReader::new(file);
         let mut buffer = [0; 2]; // Read 2 bytes for u16
         while let Ok(bytes_read) = reader.read(&mut buffer) {
@@ -800,7 +809,96 @@ fn spawn_chunk(
     let chunk_world_x = chunk_data.position.x as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
     let chunk_world_z = chunk_data.position.y as f32 * CHUNK_SIZE as f32 * TILE_SIZE;
 
-    // Create a parent entity for the whole chunk
+    // --- Single Mesh with Vertex Colors ---
+    // This approach creates one single mesh for the entire chunk.
+    // Each tile is a quad with its vertices colored according to the tile type.
+    // This is extremely performant as it results in only one draw call per chunk.
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut colors = Vec::new();
+    let mut indices = Vec::new();
+    let mut vertex_count: u32 = 0;
+
+    for y in 0..CHUNK_SIZE as usize {
+        for x in 0..CHUNK_SIZE as usize {
+            let tile_type = chunk_data.tiles[y][x];
+
+            if tile_type == TileType::Water {
+                continue; // Skip rendering water tiles
+            }
+
+            let tile_color = tile_type.get_color().as_rgba_f32();
+            let x_pos = x as f32 * TILE_SIZE;
+            let z_pos = y as f32 * TILE_SIZE;
+
+            // Define the 4 vertices of the quad, with correct winding order
+            positions.extend([
+                // Bottom-left
+                [x_pos, 0.0, z_pos],
+                // Bottom-right
+                [x_pos + TILE_SIZE, 0.0, z_pos],
+                // Top-right
+                [x_pos + TILE_SIZE, 0.0, z_pos + TILE_SIZE],
+                // Top-left
+                [x_pos, 0.0, z_pos + TILE_SIZE],
+            ]);
+
+            // All vertices of a tile have the same color and normal
+            for _ in 0..4 {
+                normals.push([0.0, 1.0, 0.0]);
+                colors.push(tile_color);
+            }
+
+            // Add UVs for the quad
+            uvs.extend([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+
+            // Add indices for the two triangles of the quad, with correct winding order
+            indices.extend([
+                vertex_count,
+                vertex_count + 2,
+                vertex_count + 1,
+                vertex_count,
+                vertex_count + 3,
+                vertex_count + 2,
+            ]);
+
+            vertex_count += 4;
+        }
+    }
+
+    if positions.is_empty() {
+        // Spawn an empty parent entity even for water-only chunks to track them
+        commands.spawn((
+            SpatialBundle {
+                transform: Transform::from_xyz(chunk_world_x, 0.0, chunk_world_z),
+                ..default()
+            },
+            ChunkEntity {
+                position: chunk_data.position,
+            },
+        ));
+        return;
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh.insert_indices(Indices::U32(indices));
+
+    let mesh_handle = meshes.add(mesh);
+
+    // Use a single material that respects vertex colors.
+    let material = materials.add(StandardMaterial {
+        base_color: Color::WHITE, // Set to white to not tint the vertex colors
+        perceptual_roughness: 1.0,
+        metallic: 0.0,
+        ..default()
+    });
+
+    // Create a parent entity for the whole chunk and add the mesh as a child
     let parent_chunk_entity = commands
         .spawn((
             SpatialBundle {
@@ -811,74 +909,14 @@ fn spawn_chunk(
                 position: chunk_data.position,
             },
         ))
+        .with_children(|parent| {
+            parent.spawn(PbrBundle {
+                mesh: mesh_handle,
+                material: material.clone(),
+                ..default()
+            });
+        })
         .id();
-
-    // --- Greedy Meshing ---
-    let mut visited = [[false; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
-    let tiles = &chunk_data.tiles;
-
-    for y in 0..CHUNK_SIZE as usize {
-        for x in 0..CHUNK_SIZE as usize {
-            if visited[y][x] || tiles[y][x] == TileType::Water {
-                // Don't mesh water, treat as empty
-                continue;
-            }
-
-            let current_tile_type = tiles[y][x];
-            visited[y][x] = true;
-
-            // Find width of the rectangle
-            let mut width = 1;
-            while x + width < CHUNK_SIZE as usize
-                && !visited[y][x + width]
-                && tiles[y][x + width] == current_tile_type
-            {
-                width += 1;
-            }
-
-            // Find height of the rectangle
-            let mut height = 1;
-            'outer: while y + height < CHUNK_SIZE as usize {
-                for i in 0..width {
-                    if visited[y + height][x + i] || tiles[y + height][x + i] != current_tile_type {
-                        break 'outer;
-                    }
-                }
-                height += 1;
-            }
-
-            // Mark all tiles in the rectangle as visited
-            for i in 0..height {
-                for j in 0..width {
-                    visited[y + i][x + j] = true;
-                }
-            }
-
-            // Create and spawn the mesh for this rectangle
-            let mesh_width = width as f32 * TILE_SIZE;
-            let mesh_height = height as f32 * TILE_SIZE;
-
-            let mesh = meshes.add(
-                Plane3d::default().mesh().size(mesh_width, mesh_height),
-            );
-            let material = materials.add(current_tile_type.get_color());
-
-            let mesh_x = (x as f32 * TILE_SIZE) + (mesh_width / 2.0);
-            let mesh_z = (y as f32 * TILE_SIZE) + (mesh_height / 2.0);
-
-            let quad_entity = commands
-                .spawn(PbrBundle {
-                    mesh,
-                    material,
-                    transform: Transform::from_xyz(mesh_x, 0.0, mesh_z),
-                    ..default()
-                })
-                .id();
-
-            // Parent the quad to the chunk entity
-            commands.entity(parent_chunk_entity).add_child(quad_entity);
-        }
-    }
 
     // Draw chunk border if enabled
     if chunk_border_visible.0 {
@@ -886,33 +924,61 @@ fn spawn_chunk(
         let border_thickness = 0.05;
         let border_length = CHUNK_SIZE as f32 * TILE_SIZE;
         let y = 0.01; // Slightly above ground to avoid z-fighting
-        // Four lines: top, bottom, left, right
+
+        let border_material = materials.add(StandardMaterial::from(border_color));
+
         let borders = [
             // Top
-            (Vec3::new(border_length / 2.0, y, 0.0), border_length, 0.0),
+            (
+                Vec3::new(border_length / 2.0, y, 0.0),
+                Quat::IDENTITY,
+                Vec3::new(border_length, border_thickness, border_thickness),
+            ),
             // Bottom
-            (Vec3::new(border_length / 2.0, y, border_length), border_length, 0.0),
+            (
+                Vec3::new(border_length / 2.0, y, border_length),
+                Quat::IDENTITY,
+                Vec3::new(border_length, border_thickness, border_thickness),
+            ),
             // Left
-            (Vec3::new(0.0, y, border_length / 2.0), border_length, std::f32::consts::FRAC_PI_2),
+            (
+                Vec3::new(0.0, y, border_length / 2.0),
+                Quat::IDENTITY,
+                Vec3::new(border_thickness, border_thickness, border_length),
+            ),
             // Right
-            (Vec3::new(border_length, y, border_length / 2.0), border_length, std::f32::consts::FRAC_PI_2),
+            (
+                Vec3::new(border_length, y, border_length / 2.0),
+                Quat::IDENTITY,
+                Vec3::new(border_thickness, border_thickness, border_length),
+            ),
         ];
-        for (pos, len, rot) in borders.iter() {
-            let border_mesh = meshes.add(Cuboid::new(*len, border_thickness, border_thickness));
-            let border_material = materials.add(border_color);
-            let border_entity = commands.spawn(PbrBundle {
-                mesh: border_mesh,
-                material: border_material,
-                transform: Transform::from_translation(*pos)
-                    .with_rotation(Quat::from_rotation_y(*rot)),
-                ..default()
-            }).id();
-            commands.entity(parent_chunk_entity).add_child(border_entity);
-        }
+
+        let border_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+        commands.entity(parent_chunk_entity).with_children(|parent| {
+            for (translation, _rotation, scale) in borders.iter() {
+                parent.spawn(PbrBundle {
+                    mesh: border_mesh.clone(),
+                    material: border_material.clone(),
+                    transform: Transform {
+                        translation: *translation,
+                        scale: *scale,
+                        ..default()
+                    },
+                    ..default()
+                });
+            }
+        });
     }
 
-    // Add decorations (optional, can be adapted)
-    spawn_chunk_decorations(chunk_data, commands, meshes, materials, parent_chunk_entity);
+    // Add decorations
+    spawn_chunk_decorations(
+        chunk_data,
+        commands,
+        meshes,
+        materials,
+        parent_chunk_entity,
+    );
 }
 
 fn spawn_chunk_decorations(
