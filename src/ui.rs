@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ecs::system::ParamSet;
+use bevy::app::AppExit;
 use crate::{components::*, constants::*, resources::*, world::get_tile_at_position};
 
 pub fn toggle_map(keyboard_input: Res<ButtonInput<KeyCode>>, mut map_visible: ResMut<MapVisible>) {
@@ -122,4 +123,184 @@ pub fn update_biome_display(
             coord_text.sections[0].value = format!("({:.1}, {:.1})", x, z);
         }
     }
+}
+
+pub fn toggle_pause_menu(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    current_state: Res<State<GameState>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+    pause_menu_query: Query<Entity, With<PauseMenu>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Escape) {
+        match current_state.get() {
+            GameState::Playing => {
+                next_state.set(GameState::Paused);
+                spawn_pause_menu(&mut commands);
+            }
+            GameState::Paused => {
+                next_state.set(GameState::Playing);
+                // Remove pause menu
+                for entity in pause_menu_query.iter() {
+                    commands.entity(entity).despawn_recursive();
+                }
+            }
+        }
+    }
+}
+
+pub fn handle_pause_menu_buttons(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor, Option<&BackToGameButton>, Option<&SettingsButton>, Option<&ExitToDesktopButton>),
+        (Changed<Interaction>, With<Button>),
+    >,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+    pause_menu_query: Query<Entity, With<PauseMenu>>,
+    mut exit: EventWriter<AppExit>,
+) {
+    for (interaction, mut color, back_button, settings_button, exit_button) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                if back_button.is_some() {
+                    // Back to game
+                    next_state.set(GameState::Playing);
+                    for entity in pause_menu_query.iter() {
+                        commands.entity(entity).despawn_recursive();
+                    }
+                } else if settings_button.is_some() {
+                    // Settings (placeholder for now)
+                    println!("Settings button pressed - not implemented yet");
+                } else if exit_button.is_some() {
+                    // Exit to desktop
+                    exit.send(AppExit);
+                }
+            }
+            Interaction::Hovered => {
+                *color = Color::rgb(0.7, 0.7, 0.7).into();
+            }
+            Interaction::None => {
+                *color = Color::rgb(0.5, 0.5, 0.5).into();
+            }
+        }
+    }
+}
+
+fn spawn_pause_menu(commands: &mut Commands) {
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                background_color: Color::rgba(0.0, 0.0, 0.0, 0.8).into(),
+                z_index: ZIndex::Global(1000),
+                ..default()
+            },
+            PauseMenu,
+        ))
+        .with_children(|parent| {
+            // Pause Menu Title
+            parent.spawn(TextBundle::from_section(
+                "PAUSED",
+                TextStyle {
+                    font_size: 48.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ).with_style(Style {
+                margin: UiRect::bottom(Val::Px(40.0)),
+                ..default()
+            }));
+
+            // Back to Game Button
+            parent
+                .spawn((
+                    ButtonBundle {
+                        style: Style {
+                            width: Val::Px(200.0),
+                            height: Val::Px(50.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            margin: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        },
+                        background_color: Color::rgb(0.5, 0.5, 0.5).into(),
+                        ..default()
+                    },
+                    BackToGameButton,
+                ))
+                .with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "Back to Game",
+                        TextStyle {
+                            font_size: 20.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ));
+                });
+
+            // Settings Button
+            parent
+                .spawn((
+                    ButtonBundle {
+                        style: Style {
+                            width: Val::Px(200.0),
+                            height: Val::Px(50.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            margin: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        },
+                        background_color: Color::rgb(0.5, 0.5, 0.5).into(),
+                        ..default()
+                    },
+                    SettingsButton,
+                ))
+                .with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "Settings",
+                        TextStyle {
+                            font_size: 20.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ));
+                });
+
+            // Exit to Desktop Button
+            parent
+                .spawn((
+                    ButtonBundle {
+                        style: Style {
+                            width: Val::Px(200.0),
+                            height: Val::Px(50.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            margin: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        },
+                        background_color: Color::rgb(0.5, 0.5, 0.5).into(),
+                        ..default()
+                    },
+                    ExitToDesktopButton,
+                ))
+                .with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "Exit to Desktop",
+                        TextStyle {
+                            font_size: 20.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ));
+                });
+        });
 }

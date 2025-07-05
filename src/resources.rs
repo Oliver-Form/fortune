@@ -8,6 +8,13 @@ pub enum CameraView {
     FirstPerson,
 }
 
+#[derive(States, Default, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub enum GameState {
+    #[default]
+    Playing,
+    Paused,
+}
+
 // Resources
 #[derive(Resource)]
 pub struct WorldData {

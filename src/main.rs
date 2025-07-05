@@ -31,6 +31,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .init_state::<GameState>()
         .insert_resource(MapVisible(false))
         .insert_resource(FpsTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
         .insert_resource(AimState {
@@ -43,22 +44,26 @@ fn main() {
         .add_systems(
             Update,
             (
-                player_movement,
-                camera_follow,
-                camera_zoom,
-                update_explored_chunks,
-                manage_world_chunks,
-                gun_control,
-                aim_system,
-                shooting_system,
-                toggle_map,
-                update_map_display,
+                toggle_pause_menu,
+                handle_pause_menu_buttons,
+                (
+                    player_movement,
+                    camera_follow,
+                    camera_zoom,
+                    update_explored_chunks,
+                    manage_world_chunks,
+                    gun_control,
+                    aim_system,
+                    shooting_system,
+                    toggle_map,
+                    update_map_display,
+                    spawn_player_when_loaded,
+                    handle_animations,
+                    toggle_camera_view,
+                    toggle_chunk_borders,
+                ).run_if(in_state(GameState::Playing)),
                 update_fps,
                 update_biome_display,
-                spawn_player_when_loaded,
-                handle_animations,
-                toggle_camera_view,
-                toggle_chunk_borders,
             ),
         )
         .run();

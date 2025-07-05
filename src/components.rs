@@ -40,6 +40,19 @@ pub struct CoordText;
 #[derive(Component)]
 pub struct MapPlayerMarker;
 
+// Pause menu components
+#[derive(Component)]
+pub struct PauseMenu;
+
+#[derive(Component)]
+pub struct BackToGameButton;
+
+#[derive(Component)]
+pub struct SettingsButton;
+
+#[derive(Component)]
+pub struct ExitToDesktopButton;
+
 // Environment components
 #[derive(Component)]
 pub struct Cactus;
