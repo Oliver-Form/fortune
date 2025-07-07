@@ -13,6 +13,7 @@ pub enum GameState {
     #[default]
     Playing,
     Paused,
+    CharacterCustomization,
 }
 
 // Resources

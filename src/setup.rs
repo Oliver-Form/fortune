@@ -12,7 +12,7 @@ pub fn setup(
 ) {
     // Load map data from file
     let mut tiles = Vec::new();
-    if let Ok(file) = File::open("src/file_checkers.map") {
+    if let Ok(file) = File::open("src/four_quadrants.map") {
         let mut reader = BufReader::new(file);
         let mut buffer = [0; 2]; // Read 2 bytes for u16
         while let Ok(bytes_read) = reader.read(&mut buffer) {

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fortune Map Editor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Fortune Map Editor</h1>
+            <div class="controls">
+                <input type="file" id="loadMap" accept=".map" title="Load .map file">
+                <button id="saveMap">Save Map</button>
+                <button id="newMap">New Map</button>
+                <button id="exportPng">Export PNG</button>
+            </div>
+        </header>
+
+        <div class="editor-layout">
+            <div class="sidebar">
+                <div class="tool-section">
+                    <h3>Tools</h3>
+                    <div class="tool-buttons">
+                        <button class="tool-btn active" data-tool="paint">🖌️ Paint</button>
+                        <button class="tool-btn" data-tool="fill">🪣 Fill</button>
+                        <button class="tool-btn" data-tool="circle">⭕ Circle</button>
+                        <button class="tool-btn" data-tool="line">📏 Line</button>
+                        <button class="tool-btn" data-tool="eyedropper">💧 Eyedropper</button>
+                    </div>
+                </div>
+
+                <div class="tile-section">
+                    <h3>Tiles</h3>
+                    <div class="tile-palette">
+                        <div class="tile-btn active" data-tile="0" style="background-color: #4CAF50;">
+                            <span>Grass</span>
+                        </div>
+                        <div class="tile-btn" data-tile="1" style="background-color: #DEB887;">
+                            <span>Desert</span>
+                        </div>
+                        <div class="tile-btn" data-tile="2" style="background-color: #4682B4;">
+                            <span>Water</span>
+                        </div>
+                        <div class="tile-btn" data-tile="3" style="background-color: #696969;">
+                            <span>Rock</span>
+                        </div>
+                        <div class="tile-btn" data-tile="4" style="background-color: #F4A460;">
+                            <span>Sand</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="options-section">
+                    <h3>Options</h3>
+                    <div class="option-group">
+                        <label for="brushSize">Brush Size:</label>
+                        <input type="range" id="brushSize" min="1" max="20" value="1">
+                        <span id="brushSizeValue">1</span>
+                    </div>
+                    <div class="option-group">
+                        <label for="zoom">Zoom:</label>
+                        <input type="range" id="zoom" min="0.1" max="5" step="0.1" value="1">
+                        <span id="zoomValue">100%</span>
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <h3>Map Info</h3>
+                    <div id="mapInfo">
+                        <p>Size: 4096x4096</p>
+                        <p>Mouse: (0, 0)</p>
+                        <p>Tile: Grass</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <canvas id="mapCanvas" width="800" height="600"></canvas>
+                <div class="canvas-overlay">
+                    <div class="minimap-container">
+                        <canvas id="minimap" width="200" height="200"></canvas>
+                        <div id="viewport-indicator"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

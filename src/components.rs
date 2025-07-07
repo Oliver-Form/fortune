@@ -51,6 +51,9 @@ pub struct BackToGameButton;
 pub struct SettingsButton;
 
 #[derive(Component)]
+pub struct CharacterCustomizationButton;
+
+#[derive(Component)]
 pub struct ExitToDesktopButton;
 
 // Environment components

@@ -7,6 +7,7 @@ mod world;
 mod ui;
 mod combat;
 mod setup;
+mod character_customization;
 
 use constants::*;
 use components::*;
@@ -17,6 +18,7 @@ use world::*;
 use ui::*;
 use combat::*;
 use setup::*;
+use character_customization::*;
 
 use bevy::prelude::*;
 use bevy::window::PresentMode;
@@ -41,6 +43,8 @@ fn main() {
         .insert_resource(CameraViewResource(CameraView::Isometric))
         .insert_resource(ChunkBorderVisible(false))
         .add_systems(Startup, setup)
+        .add_systems(OnEnter(GameState::CharacterCustomization), setup_character_customization)
+        .add_systems(OnExit(GameState::CharacterCustomization), cleanup_character_customization)
         .add_systems(
             Update,
             (
@@ -62,6 +66,10 @@ fn main() {
                     toggle_camera_view,
                     toggle_chunk_borders,
                 ).run_if(in_state(GameState::Playing)),
+                (
+                    handle_character_customization_buttons,
+                    play_idle_animation,
+                ).run_if(in_state(GameState::CharacterCustomization)),
                 update_fps,
                 update_biome_display,
             ),

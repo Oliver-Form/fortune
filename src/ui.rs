@@ -145,13 +145,18 @@ pub fn toggle_pause_menu(
                     commands.entity(entity).despawn_recursive();
                 }
             }
+            GameState::CharacterCustomization => {
+                // Return to pause menu from character customization
+                next_state.set(GameState::Paused);
+                spawn_pause_menu(&mut commands);
+            }
         }
     }
 }
 
 pub fn handle_pause_menu_buttons(
     mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, Option<&BackToGameButton>, Option<&SettingsButton>, Option<&ExitToDesktopButton>),
+        (&Interaction, &mut BackgroundColor, Option<&BackToGameButton>, Option<&SettingsButton>, Option<&CharacterCustomizationButton>, Option<&ExitToDesktopButton>),
         (Changed<Interaction>, With<Button>),
     >,
     mut next_state: ResMut<NextState<GameState>>,
@@ -159,7 +164,7 @@ pub fn handle_pause_menu_buttons(
     pause_menu_query: Query<Entity, With<PauseMenu>>,
     mut exit: EventWriter<AppExit>,
 ) {
-    for (interaction, mut color, back_button, settings_button, exit_button) in &mut interaction_query {
+    for (interaction, mut color, back_button, settings_button, customization_button, exit_button) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
                 if back_button.is_some() {
@@ -171,6 +176,12 @@ pub fn handle_pause_menu_buttons(
                 } else if settings_button.is_some() {
                     // Settings (placeholder for now)
                     println!("Settings button pressed - not implemented yet");
+                } else if customization_button.is_some() {
+                    // Character customization
+                    next_state.set(GameState::CharacterCustomization);
+                    for entity in pause_menu_query.iter() {
+                        commands.entity(entity).despawn_recursive();
+                    }
                 } else if exit_button.is_some() {
                     // Exit to desktop
                     exit.send(AppExit);
@@ -267,6 +278,34 @@ fn spawn_pause_menu(commands: &mut Commands) {
                 .with_children(|parent| {
                     parent.spawn(TextBundle::from_section(
                         "Settings",
+                        TextStyle {
+                            font_size: 20.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ));
+                });
+
+            // Character Customization Button
+            parent
+                .spawn((
+                    ButtonBundle {
+                        style: Style {
+                            width: Val::Px(200.0),
+                            height: Val::Px(50.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            margin: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        },
+                        background_color: Color::rgb(0.5, 0.5, 0.5).into(),
+                        ..default()
+                    },
+                    CharacterCustomizationButton,
+                ))
+                .with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "Character Customization",
                         TextStyle {
                             font_size: 20.0,
                             color: Color::WHITE,
