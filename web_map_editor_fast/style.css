@@ -1,0 +1,287 @@
+/* Performance-optimized CSS for fast map editor */
+:root {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #2d2d2d;
+    --bg-tertiary: #3e3e3e;
+    --text-primary: #ffffff;
+    --text-secondary: #cccccc;
+    --accent: #007acc;
+    --accent-hover: #005a9e;
+    --border: #4a4a4a;
+    --success: #4caf50;
+    --warning: #ff9800;
+    --error: #f44336;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+    height: 100vh;
+}
+
+.container {
+    display: flex;
+    height: 100vh;
+}
+
+.sidebar {
+    width: 280px;
+    background-color: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.section {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.section:last-child {
+    border-bottom: none;
+}
+
+h3 {
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn {
+    width: 100%;
+    padding: 8px 12px;
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-bottom: 4px;
+    transition: background-color 0.2s;
+}
+
+.btn:hover {
+    background-color: var(--accent-hover);
+}
+
+.tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.tool-btn, .tile-btn {
+    padding: 8px 12px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    text-align: left;
+}
+
+.tool-btn:hover, .tile-btn:hover {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+.tool-btn.active, .tile-btn.active {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.tile-palette {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.property {
+    margin-bottom: 12px;
+}
+
+.property label {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.property input[type="range"] {
+    width: 100%;
+    margin: 4px 0;
+}
+
+.property input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.property select {
+    width: 100%;
+    padding: 4px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background-color: var(--bg-primary);
+}
+
+.canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 50% / 20px 20px;
+}
+
+#mapCanvas {
+    display: block;
+    cursor: crosshair;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+}
+
+.canvas-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+}
+
+.loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+}
+
+.minimap-container {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background-color: var(--bg-secondary);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#minimapCanvas {
+    display: block;
+    border-radius: 4px;
+    image-rendering: pixelated;
+}
+
+.minimap-viewport {
+    position: absolute;
+    border: 2px solid var(--accent);
+    pointer-events: none;
+    border-radius: 2px;
+}
+
+#mapInfo {
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+#mapInfo div {
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+}
+
+#mapInfo span {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* Scrollbar styling */
+.sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+}
+
+/* Performance indicators */
+.performance-high {
+    color: var(--success);
+}
+
+.performance-medium {
+    color: var(--warning);
+}
+
+.performance-low {
+    color: var(--error);
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+    .sidebar {
+        width: 240px;
+    }
+}
+
+@media (max-width: 800px) {
+    .container {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100%;
+        height: 200px;
+        order: 2;
+    }
+    
+    .main-area {
+        order: 1;
+        height: calc(100vh - 200px);
+    }
+    
+    .minimap-container {
+        bottom: 8px;
+        right: 8px;
+    }
+}

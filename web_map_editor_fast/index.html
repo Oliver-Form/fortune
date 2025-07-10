@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fortune Map Editor - Fast Version</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="section">
+                <h3>File Operations</h3>
+                <button id="loadBtn" class="btn">📁 Load Map</button>
+                <button id="saveBtn" class="btn">💾 Save Map</button>
+                <button id="exportBtn" class="btn">🖼️ Export PNG</button>
+                <button id="newBtn" class="btn">🆕 New Map</button>
+                <input type="file" id="fileInput" accept=".map" style="display: none;">
+            </div>
+
+            <div class="section">
+                <h3>Tools</h3>
+                <div class="tool-group">
+                    <button id="paintTool" class="tool-btn active" data-tool="paint">🖌️ Paint</button>
+                    <button id="fillTool" class="tool-btn" data-tool="fill">🪣 Fill</button>
+                    <button id="eyedropperTool" class="tool-btn" data-tool="eyedropper">👁️ Eyedropper</button>
+                </div>
+                
+                <div class="property">
+                    <label>Brush Size: <span id="brushSizeValue">1</span></label>
+                    <input type="range" id="brushSize" min="1" max="20" value="1">
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Tiles</h3>
+                <div class="tile-palette">
+                    <button class="tile-btn active" data-tile="0" style="background-color: #4a7c3a;">🌱 Grass</button>
+                    <button class="tile-btn" data-tile="1" style="background-color: #d4a853;">🏜️ Desert</button>
+                    <button class="tile-btn" data-tile="2" style="background-color: #4a90d4;">💧 Water</button>
+                    <button class="tile-btn" data-tile="3" style="background-color: #6b5b5b;">🪨 Rock</button>
+                    <button class="tile-btn" data-tile="4" style="background-color: #f4e4a6;">🏖️ Sand</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>View</h3>
+                <div class="property">
+                    <label>Zoom: <span id="zoomValue">25%</span></label>
+                    <input type="range" id="zoomSlider" min="0.1" max="2" step="0.1" value="0.25">
+                </div>
+                <button id="resetViewBtn" class="btn">🎯 Reset View</button>
+                <button id="centerBtn" class="btn">📍 Center Map</button>
+                
+                <div class="property">
+                    <label>
+                        <input type="checkbox" id="chunkGridToggle"> Show Chunk Grid
+                    </label>
+                </div>
+                
+                <div class="property">
+                    <label>Performance Mode:
+                        <select id="performanceMode">
+                            <option value="fast">Fast (Low Quality)</option>
+                            <option value="balanced" selected>Balanced</option>
+                            <option value="quality">Quality (Slow)</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Map Info</h3>
+                <div id="mapInfo">
+                    <div>Size: <span id="mapSize">4096x4096</span></div>
+                    <div>Mouse: <span id="mouseCoords">(0, 0)</span></div>
+                    <div>Tile: <span id="currentTile">Grass</span></div>
+                    <div>FPS: <span id="fps">0</span></div>
+                    <div>Chunks: <span id="chunkCount">0/256</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-area">
+            <div class="canvas-container">
+                <canvas id="mapCanvas" width="800" height="600"></canvas>
+                <div class="canvas-overlay">
+                    <div id="loadingIndicator" class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="minimap-container">
+                <canvas id="minimapCanvas" width="200" height="200"></canvas>
+                <div class="minimap-viewport"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
